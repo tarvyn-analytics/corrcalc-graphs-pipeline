@@ -29,11 +29,23 @@
         <sonar.organization>tarvyn-analytics</sonar.organization>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
         <sonar.projectKey>tarvyn-analytics_corrcalc-graphs-pipeline</sonar.projectKey>
-        <!-- S5778 expects a single throwing call in a lambda; it does not fit JUnit
-             assertThrows where setup precedes the throwing call. -->
-        <sonar.issue.ignore.multicriteria>e1</sonar.issue.ignore.multicriteria>
+        <!-- e1: S5778 expects a single throwing call in a lambda; it does not fit JUnit
+             assertThrows where setup precedes the throwing call. Test sources only.
+             e2/e3/e4: S6218 wants array-holding records to override equals/hashCode/toString.
+             ReturnPanel, DensityChangeSeries and TimescaleScoring carry primitive numeric
+             arrays (double[][] returns fed bar-by-bar to the S1 engine; the derived double[]
+             series) as read-once carriers — they are never compared, hashed or printed (test
+             comparisons use assertArrayEquals on the components), and List<List<Double>> would
+             break the engine's double[]-row hot path. Same precedent as graphs-algos-lib's e4. -->
+        <sonar.issue.ignore.multicriteria>e1,e2,e3,e4</sonar.issue.ignore.multicriteria>
         <sonar.issue.ignore.multicriteria.e1.ruleKey>java:S5778</sonar.issue.ignore.multicriteria.e1.ruleKey>
         <sonar.issue.ignore.multicriteria.e1.resourceKey>**/*Test.java</sonar.issue.ignore.multicriteria.e1.resourceKey>
+        <sonar.issue.ignore.multicriteria.e2.ruleKey>java:S6218</sonar.issue.ignore.multicriteria.e2.ruleKey>
+        <sonar.issue.ignore.multicriteria.e2.resourceKey>**/data/ReturnPanel.java</sonar.issue.ignore.multicriteria.e2.resourceKey>
+        <sonar.issue.ignore.multicriteria.e3.ruleKey>java:S6218</sonar.issue.ignore.multicriteria.e3.ruleKey>
+        <sonar.issue.ignore.multicriteria.e3.resourceKey>**/detect/DensityChangeSeries.java</sonar.issue.ignore.multicriteria.e3.resourceKey>
+        <sonar.issue.ignore.multicriteria.e4.ruleKey>java:S6218</sonar.issue.ignore.multicriteria.e4.ruleKey>
+        <sonar.issue.ignore.multicriteria.e4.resourceKey>**/replay/TimescaleScoring.java</sonar.issue.ignore.multicriteria.e4.resourceKey>
     </properties>
 
     <distributionManagement>
