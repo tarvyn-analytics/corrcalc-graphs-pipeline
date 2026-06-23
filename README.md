@@ -59,7 +59,7 @@ regression. Two detectors run over the same S1 matrix stream:
 ./mvnw clean verify    # tests + JaCoCo 80/70 gate
 ```
 
-**Requires JDK 21+.** The two upstream libraries are **private GitHub-Packages** artifacts. For
+**Requires JDK 25.** The two upstream libraries are **private GitHub-Packages** artifacts. For
 local work, install each to `~/.m2` once from a sibling checkout (no token needed):
 
 ```bash

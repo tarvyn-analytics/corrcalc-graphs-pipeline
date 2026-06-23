@@ -21,7 +21,9 @@ adds normal dependencies and orchestration that the libraries are forbidden from
 ( cd ../../graphs/graphs-algos-lib && ./mvnw -DskipTests install )
 ```
 
-**Requires JDK 21+** (bytecode target `--release 21`, matching both upstream libs).
+**Requires JDK 25** (bytecode target `--release 25` — the family build JDK; corrcalc-lib already
+requires JDK 25 to build its incubator Vector kernels). The upstream libs publish `--release 21`
+bytecode, which a release-25 consumer resolves without issue.
 
 ## Invariants — keep these
 

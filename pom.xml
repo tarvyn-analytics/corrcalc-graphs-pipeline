@@ -15,8 +15,12 @@
         regression. Consumes correlation matrices; produces signals — not a UI.</description>
 
     <properties>
-        <!-- Both upstream libraries compile at release 21; the pipeline matches them. -->
-        <maven.compiler.release>21</maven.compiler.release>
+        <!-- The pipeline targets release 25 — the family build JDK (corrcalc-lib already
+             requires JDK 25 to build its incubator Vector kernels). A release-25 consumer
+             depends without issue on the upstream libs' published release-21 bytecode; the
+             rolling-correlation path it drives is the scalar streaming engine, so the batch
+             Vector-API kernels (and their incubator-module requirement) never enter this build. -->
+        <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <junit.version>5.12.2</junit.version>
         <corrcalc-lib.version>1.2.2-SNAPSHOT</corrcalc-lib.version>
