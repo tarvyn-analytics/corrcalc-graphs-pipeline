@@ -52,6 +52,19 @@ public record StructuralSignal(
     }
 
     /**
+     * Returns a copy of this signal with the filter verdict replaced — used by the publisher to
+     * attach the {@link SignalFilter}'s assessment to a freshly detected signal.
+     *
+     * @param newValidity the verdict to attach
+     * @return a copy carrying {@code newValidity}
+     */
+    public StructuralSignal withValidity(Validity newValidity) {
+        return new StructuralSignal(asOf, market, timescale, universe, kind, changeMetric,
+                cusumSPlus, cusumSMinus, levelDensity, edgeXorFraction, nComponents,
+                largestComponentFraction, newValidity, leadVsDailyHours);
+    }
+
+    /**
      * The validity verdict from the {@link SignalFilter} stage (build-design §5.3, feature #1a).
      *
      * @param filtered {@code true} if the filter suppressed this signal as likely invalid
