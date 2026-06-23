@@ -1,0 +1,10 @@
+target/
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.DS_Store
+.scannerwork/
+# Local raw market-data the opt-in full-data driver reads (never committed; see README).
+crypto-data/

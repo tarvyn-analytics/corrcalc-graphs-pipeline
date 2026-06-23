@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>ch.tarvynanalytics.pipeline</groupId>
+    <artifactId>corrcalc-graphs-pipeline</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+    <name>corrcalc-graphs streaming pipeline</name>
+    <description>Initiative-S S4: the streaming structural-change pipeline service. Wires the
+        corrcalc-lib online correlation engine (S1) to the graphs-algos-lib temporal change
+        detector (S3) over one return stream per timescale, runs a per-asset alert layer, and
+        publishes structural-change signals through a filter + multi-sink delivery seam. The
+        first milestone reproduces the n=8 crypto detection (crypto_lead_table.csv) as a pinned
+        regression. Consumes correlation matrices; produces signals — not a UI.</description>
+
+    <properties>
+        <!-- Both upstream libraries compile at release 21; the pipeline matches them. -->
+        <maven.compiler.release>21</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <junit.version>5.12.2</junit.version>
+        <corrcalc-lib.version>1.2.2-SNAPSHOT</corrcalc-lib.version>
+        <graphs-algos-lib.version>0.1.0-SNAPSHOT</graphs-algos-lib.version>
+        <!-- SonarCloud analysis (same organization as the corrcalc/graphs repos). -->
+        <sonar.organization>tarvyn-analytics</sonar.organization>
+        <sonar.host.url>https://sonarcloud.io</sonar.host.url>
+        <sonar.projectKey>tarvyn-analytics_corrcalc-graphs-pipeline</sonar.projectKey>
+        <!-- S5778 expects a single throwing call in a lambda; it does not fit JUnit
+             assertThrows where setup precedes the throwing call. -->
+        <sonar.issue.ignore.multicriteria>e1</sonar.issue.ignore.multicriteria>
+        <sonar.issue.ignore.multicriteria.e1.ruleKey>java:S5778</sonar.issue.ignore.multicriteria.e1.ruleKey>
+        <sonar.issue.ignore.multicriteria.e1.resourceKey>**/*Test.java</sonar.issue.ignore.multicriteria.e1.resourceKey>
+    </properties>
+
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages (tarvyn-analytics/corrcalc-graphs-pipeline)</name>
+            <url>https://maven.pkg.github.com/tarvyn-analytics/corrcalc-graphs-pipeline</url>
+        </repository>
+        <snapshotRepository>
+            <id>github</id>
+            <name>GitHub Packages (tarvyn-analytics/corrcalc-graphs-pipeline)</name>
+            <url>https://maven.pkg.github.com/tarvyn-analytics/corrcalc-graphs-pipeline</url>
+        </snapshotRepository>
+    </distributionManagement>
+
+    <!-- corrcalc-lib-core (S1) and graphs-algos-lib (S3) are PRIVATE GitHub Packages
+         artifacts. For local work run `./mvnw install` once in each lib checkout (no token
+         needed). CI resolves both via a single `github` server in settings.xml whose token has
+         read:packages on BOTH tarvyn-analytics/corrcalc-lib and tarvyn-analytics/graphs-algos-lib.
+         Maven matches the server id to the repository id, so both repositories below share id
+         `github` and the one credential authenticates both. -->
+    <repositories>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages (tarvyn-analytics/corrcalc-lib)</name>
+            <url>https://maven.pkg.github.com/tarvyn-analytics/corrcalc-lib</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
+        <repository>
+            <id>github-graphs</id>
+            <name>GitHub Packages (tarvyn-analytics/graphs-algos-lib)</name>
+            <url>https://maven.pkg.github.com/tarvyn-analytics/graphs-algos-lib</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
+
+    <dependencies>
+        <!-- S1: the online rolling-correlation engine (stream package). -->
+        <dependency>
+            <groupId>ch.tarvynanalytics.corrcalc</groupId>
+            <artifactId>corrcalc-lib-core</artifactId>
+            <version>${corrcalc-lib.version}</version>
+        </dependency>
+        <!-- S3: the temporal change-metric + CUSUM change detector. -->
+        <dependency>
+            <groupId>ch.tarvynanalytics.graphs</groupId>
+            <artifactId>graphs-algos-lib</artifactId>
+            <version>${graphs-algos-lib.version}</version>
+        </dependency>
+
+        <!-- Testing -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-params</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.14.0</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.3</version>
+            </plugin>
+            <plugin>
+                <groupId>org.sonarsource.scanner.maven</groupId>
+                <artifactId>sonar-maven-plugin</artifactId>
+                <version>5.1.0.4751</version>
+            </plugin>
+            <!-- JaCoCo: 80% line / 70% branch gates, enforced by verify. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.13</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>check-coverage</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.80</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.70</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- Attaches source and javadoc jars for publishing; -Ppublish is what CI runs so a PR
+             cannot merge with javadoc errors that would break the publish-on-push job. -->
+        <profile>
+            <id>publish</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <version>3.3.1</version>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <goals>
+                                    <goal>jar-no-fork</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <version>3.11.2</version>
+                        <executions>
+                            <execution>
+                                <id>attach-javadocs</id>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
+</project>
