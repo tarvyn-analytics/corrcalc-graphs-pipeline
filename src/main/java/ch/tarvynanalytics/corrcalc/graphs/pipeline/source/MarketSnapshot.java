@@ -1,6 +1,8 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline.source;
 
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * One <strong>aligned cross-section</strong> of the market: a single timestamp and the close price of
@@ -36,5 +38,23 @@ public record MarketSnapshot(Instant timestamp, double[] closes) {
     /** The number of symbols (close prices) in this cross-section. */
     public int symbolCount() {
         return closes.length;
+    }
+
+    /** Content-aware equality (the {@code closes} array is compared by value, not identity). */
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof MarketSnapshot other
+                && Objects.equals(timestamp, other.timestamp)
+                && Arrays.equals(closes, other.closes);
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * Objects.hashCode(timestamp) + Arrays.hashCode(closes);
+    }
+
+    @Override
+    public String toString() {
+        return "MarketSnapshot[timestamp=" + timestamp + ", closes=" + Arrays.toString(closes) + "]";
     }
 }

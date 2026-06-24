@@ -3,7 +3,9 @@ package ch.tarvynanalytics.corrcalc.graphs.pipeline.data;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.source.MarketSnapshot;
 
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -111,5 +113,23 @@ public final class ReturnBuilder {
      * @param returns one log return per universe symbol, in column order
      */
     public record ReturnBar(Instant asOf, double[] returns) {
+
+        /** Content-aware equality (the {@code returns} array is compared by value, not identity). */
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof ReturnBar other
+                    && Objects.equals(asOf, other.asOf)
+                    && Arrays.equals(returns, other.returns);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * Objects.hashCode(asOf) + Arrays.hashCode(returns);
+        }
+
+        @Override
+        public String toString() {
+            return "ReturnBar[asOf=" + asOf + ", returns=" + Arrays.toString(returns) + "]";
+        }
     }
 }

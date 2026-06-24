@@ -22,7 +22,7 @@ class PriceSnapshotsTest {
         prices.put("AUSDT", List.of(
                 new Bar(t0, 10.0), new Bar(t0.plus(1, ChronoUnit.MINUTES), 11.0),
                 new Bar(t0.plus(2, ChronoUnit.MINUTES), 12.0)));
-        // BUSDT is missing the t0+1 bar -> that timestamp is not common.
+        // BUSDT has no bar at the middle minute, so that timestamp is not shared by every symbol.
         prices.put("BUSDT", List.of(
                 new Bar(t0, 20.0), new Bar(t0.plus(2, ChronoUnit.MINUTES), 24.0)));
 

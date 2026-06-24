@@ -56,7 +56,7 @@ public final class PipelineDriver {
                     break;
                 }
             }
-        } catch (InterruptedException e) {
+        } catch (InterruptedException _) {
             Thread.currentThread().interrupt();   // stop promptly; the summary so far is returned
         }
         return engine.summary();

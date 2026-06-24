@@ -45,6 +45,7 @@ import java.util.Map;
 public final class PacedReplay {
 
     private static final Logger LOG = LoggerFactory.getLogger("replay");
+    private static final String DAILY = "daily";
     private static final String INTRADAY_FREQ = "1m";
     private static final String DAILY_FREQ = "1d";
     private static final double DEFAULT_CALM_FRACTION = 0.4;
@@ -173,15 +174,15 @@ public final class PacedReplay {
         if (!"crypto".equals(market)) {
             throw new IllegalArgumentException("unsupported market [" + market + "]; supported: crypto");
         }
-        return "daily".equals(timescale) ? TimescaleConfig.cryptoDaily() : TimescaleConfig.cryptoIntraday();
+        return DAILY.equals(timescale) ? TimescaleConfig.cryptoDaily() : TimescaleConfig.cryptoIntraday();
     }
 
     private static String freqFor(String timescale) {
-        return "daily".equals(timescale) ? DAILY_FREQ : INTRADAY_FREQ;
+        return DAILY.equals(timescale) ? DAILY_FREQ : INTRADAY_FREQ;
     }
 
     private static SessionPolicy sessionPolicyFor(String timescale) {
-        return "daily".equals(timescale) ? SessionPolicy.DAILY_SINGLE : SessionPolicy.INTRADAY_UTC_DAY;
+        return DAILY.equals(timescale) ? SessionPolicy.DAILY_SINGLE : SessionPolicy.INTRADAY_UTC_DAY;
     }
 
     private static int resolveCalmBars(Integer override, int expectedPoints) {
@@ -199,6 +200,9 @@ public final class PacedReplay {
 
     private static void logStart(ReplayOptions opts, int returnBars, int expectedPoints, TimescaleConfig cfg,
                                  int calmBars, double speed) {
+        if (!LOG.isInfoEnabled()) {
+            return;
+        }
         LOG.info("replay {} {}/{}: {} bars -> {} window-points (window={}, tau={}), calmBars={}, speed={}x",
                 opts.event(), opts.market(), opts.timescale(), returnBars, expectedPoints, cfg.window(),
                 fmt(cfg.edgeThreshold(), 2), calmBars, fmt(speed, 1));
