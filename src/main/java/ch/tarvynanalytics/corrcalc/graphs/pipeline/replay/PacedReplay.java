@@ -5,12 +5,18 @@ import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObserver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.SignalSink;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.Bar;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.PriceBars;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.PriceSnapshots;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.ReturnBuilder;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.ReturnPanel;
-import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.ReturnPanels;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.SessionPolicy;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.UniverseCsv;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.TimescaleConfig;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.engine.PipelineDriver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.engine.PipelineEngine;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.engine.RunSummary;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.source.IterableMarketDataSource;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.source.MarketDataSource;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.source.MarketSnapshot;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,16 +29,18 @@ import java.util.Map;
 
 /**
  * The live, wall-clock-paced replay <em>driver</em> — the visualization counterpart to the batch
- * {@code backtest} scorer. It loads one timescale's stored bars, builds the aligned return panel, and
- * feeds it bar-by-bar into a {@link PipelineEngine} (S1 {@code RollingCorrelations} → S3
- * {@code ChangeDetector}), pacing the <em>detection</em> phase to wall-clock time scaled by a speed
- * multiplier. Fires reach the configured {@link SignalSink} (the product); every transition reaches the
- * configured {@link PipelineObserver} through the consumer's {@link ObservationPolicy}.
+ * {@code backtest} scorer. It loads one timescale's stored bars, aligns them into
+ * {@link MarketSnapshot}s, and replays them through the real inbound seam:
+ * {@code IterableMarketDataSource → ReturnBuilder → PipelineEngine}, driven by {@link PipelineDriver}
+ * and paced by a {@link ReplayClock}. Stored bars are simply a {@link MarketDataSource}, so replay and a
+ * future live feed differ only in the source and the pace.
  *
- * <p>This class owns only the two things a replay adds over the engine: <em>where the data comes
- * from</em> (the stored-bar panel) and <em>pacing</em>. The pipeline composition itself lives in
- * {@link PipelineEngine}. Calibration here is a leading warm-up of the replayed series (a pragmatic
- * choice for a visual first impression), not the rigorous walk-forward calm block the regression uses.</p>
+ * <p>This class owns only what a replay adds over the engine: <em>where the data comes from</em> (the
+ * stored-bar source) and <em>pacing</em> (the detection phase, scaled by speed). Fires reach the
+ * {@link SignalSink} (the product); every transition reaches the {@link PipelineObserver} through the
+ * consumer's {@link ObservationPolicy}. Calibration here is a leading warm-up of the replayed series (a
+ * pragmatic choice for a visual first impression), not the rigorous walk-forward calm block the
+ * regression uses.</p>
  */
 public final class PacedReplay {
 
@@ -45,8 +53,8 @@ public final class PacedReplay {
     }
 
     /**
-     * Loads the panel for {@code opts} from {@code dataDir} and replays it through the pipeline,
-     * pacing with {@code clock}, publishing fires to {@code sink} and every transition to
+     * Loads the stored bars for {@code opts} from {@code dataDir} and replays them through the inbound
+     * seam, pacing with {@code clock}, publishing fires to {@code sink} and every transition to
      * {@code observer} (gated by {@code policy}).
      *
      * @param dataDir  directory of {@code <SYMBOL>_<freq>_<event>.csv} bar files
@@ -60,30 +68,28 @@ public final class PacedReplay {
     public static RunSummary run(Path dataDir, ReplayOptions opts, SignalSink sink,
                                  PipelineObserver observer, ObservationPolicy policy, ReplayClock clock) {
         TimescaleConfig cfg = resolveConfig(opts.market(), opts.timescale());
-        ReturnPanel panel = loadPanel(dataDir, opts, freqFor(opts.timescale()));
-        return stream(panel, cfg, opts, sink, observer, policy, clock);
-    }
+        SessionPolicy sessionPolicy = sessionPolicyFor(opts.timescale());
+        String[] symbols = loadUniverse(dataDir, opts);
+        Map<String, List<Bar>> prices = loadPrices(dataDir, opts, freqFor(opts.timescale()), symbols);
+        List<MarketSnapshot> snapshots = PriceSnapshots.align(prices, symbols);
 
-    /** Builds the aligned return panel for one timescale from the per-symbol bar files. */
-    static ReturnPanel loadPanel(Path dataDir, ReplayOptions opts, String freq) {
-        Path universePath = opts.universePath() != null
-                ? opts.universePath()
-                : dataDir.resolve(opts.event() + "_universe.csv");
-        List<String> universe = UniverseCsv.read(universePath);
-        Map<String, List<Bar>> prices = new LinkedHashMap<>();
-        for (String symbol : universe) {
-            Path csv = dataDir.resolve(symbol + "_" + freq + "_" + opts.event() + ".csv");
-            prices.put(symbol, PriceBars.read(csv, opts.from(), opts.to()));
-        }
-        String[] symbols = universe.toArray(new String[0]);
-        return "intraday".equals(opts.timescale())
-                ? ReturnPanels.buildIntraday(prices, symbols)
-                : ReturnPanels.buildDaily(prices, symbols);
+        int returnBars = ReturnBuilder.countReturns(snapshots, sessionPolicy);
+        int expectedPoints = validateExpectedPoints(returnBars, cfg.window());
+        int calmBars = resolveCalmBars(opts.calmBars(), expectedPoints);
+
+        PipelineEngine engine = buildEngine(symbols, cfg, opts, calmBars, sink, observer, policy);
+        logStart(opts, returnBars, expectedPoints, cfg, calmBars, clock.speed());
+
+        MarketDataSource source = new IterableMarketDataSource(symbols, snapshots);
+        ReturnBuilder builder = new ReturnBuilder(symbols, sessionPolicy);
+        RunSummary summary = PipelineDriver.run(source, builder, engine, clock);
+        logDone(summary);
+        return summary;
     }
 
     /**
-     * Replays an already-built panel through a {@link PipelineEngine} (the testable streaming core —
-     * no filesystem). Pacing is applied only to the detection phase: the warm-up and the calm
+     * Replays an already-built panel through a {@link PipelineEngine} (the no-filesystem streaming core
+     * used by tests). Pacing is applied only to the detection phase: the warm-up and the calm
      * calibration prefix run as fast as possible, then each post-calibration transition is paced.
      *
      * @param panel    the aligned single-timescale return panel
@@ -98,35 +104,18 @@ public final class PacedReplay {
     static RunSummary stream(ReturnPanel panel, TimescaleConfig cfg, ReplayOptions opts, SignalSink sink,
                              PipelineObserver observer, ObservationPolicy policy, ReplayClock clock) {
         double[][] returns = panel.returns();
-        int window = cfg.window();
-        int expectedPoints = Math.max(0, returns.length - window + 1);
-        if (expectedPoints < 3) {
-            throw new IllegalArgumentException("series too short to replay: need >= 3 window-points "
-                    + "(bars - window + 1), got [" + expectedPoints + "] from [" + returns.length
-                    + "] bars at window [" + window + "]");
-        }
+        int expectedPoints = validateExpectedPoints(returns.length, cfg.window());
         int calmBars = resolveCalmBars(opts.calmBars(), expectedPoints);
 
-        PipelineEngine engine = PipelineEngine.builder(panel.symbols(), cfg)
-                .calmBars(calmBars)
-                .market(opts.market())
-                .timescale(opts.timescale())
-                .sink(sink)
-                .observer(observer)
-                .observationPolicy(policy)
-                .limit(opts.limit())
-                .build();
-
-        LOG.info("replay {} {}/{}: {} bars -> {} window-points (window={}, tau={}), calmBars={}, speed={}x",
-                opts.event(), opts.market(), opts.timescale(), returns.length, expectedPoints, window,
-                fmt(cfg.edgeThreshold(), 2), calmBars, fmt(clock.speed(), 1));
+        PipelineEngine engine = buildEngine(panel.symbols(), cfg, opts, calmBars, sink, observer, policy);
+        logStart(opts, returns.length, expectedPoints, cfg, calmBars, clock.speed());
 
         List<Instant> timestamps = panel.timestamps();
         Instant prevTs = null;
         for (int t = 0; t < returns.length; t++) {
             Instant ts = timestamps.get(t);
             if (engine.isCalibrated()) {
-                clock.pace(prevTs, ts);   // pace only the detection phase, as before
+                clock.pace(prevTs, ts);   // pace only the detection phase
             }
             engine.onReturns(ts, returns[t]);
             prevTs = ts;
@@ -135,9 +124,49 @@ public final class PacedReplay {
             }
         }
         RunSummary summary = engine.summary();
-        LOG.info("replay complete: {} detection points, {} fires, {} published",
-                summary.detectionPoints(), summary.fires(), summary.published());
+        logDone(summary);
         return summary;
+    }
+
+    private static PipelineEngine buildEngine(String[] symbols, TimescaleConfig cfg, ReplayOptions opts,
+                                              int calmBars, SignalSink sink, PipelineObserver observer,
+                                              ObservationPolicy policy) {
+        return PipelineEngine.builder(symbols, cfg)
+                .calmBars(calmBars)
+                .market(opts.market())
+                .timescale(opts.timescale())
+                .sink(sink)
+                .observer(observer)
+                .observationPolicy(policy)
+                .limit(opts.limit())
+                .build();
+    }
+
+    private static String[] loadUniverse(Path dataDir, ReplayOptions opts) {
+        Path universePath = opts.universePath() != null
+                ? opts.universePath()
+                : dataDir.resolve(opts.event() + "_universe.csv");
+        return UniverseCsv.read(universePath).toArray(new String[0]);
+    }
+
+    private static Map<String, List<Bar>> loadPrices(Path dataDir, ReplayOptions opts, String freq,
+                                                     String[] symbols) {
+        Map<String, List<Bar>> prices = new LinkedHashMap<>();
+        for (String symbol : symbols) {
+            Path csv = dataDir.resolve(symbol + "_" + freq + "_" + opts.event() + ".csv");
+            prices.put(symbol, PriceBars.read(csv, opts.from(), opts.to()));
+        }
+        return prices;
+    }
+
+    private static int validateExpectedPoints(int returnBars, int window) {
+        int expectedPoints = Math.max(0, returnBars - window + 1);
+        if (expectedPoints < 3) {
+            throw new IllegalArgumentException("series too short to replay: need >= 3 window-points "
+                    + "(bars - window + 1), got [" + expectedPoints + "] from [" + returnBars
+                    + "] return bars at window [" + window + "]");
+        }
+        return expectedPoints;
     }
 
     private static TimescaleConfig resolveConfig(String market, String timescale) {
@@ -151,6 +180,10 @@ public final class PacedReplay {
         return "daily".equals(timescale) ? DAILY_FREQ : INTRADAY_FREQ;
     }
 
+    private static SessionPolicy sessionPolicyFor(String timescale) {
+        return "daily".equals(timescale) ? SessionPolicy.DAILY_SINGLE : SessionPolicy.INTRADAY_UTC_DAY;
+    }
+
     private static int resolveCalmBars(Integer override, int expectedPoints) {
         int max = expectedPoints - 1;   // leave at least one detection transition
         if (override != null) {
@@ -162,6 +195,18 @@ public final class PacedReplay {
         }
         int auto = (int) Math.round(expectedPoints * DEFAULT_CALM_FRACTION);
         return Math.max(2, Math.min(auto, max));
+    }
+
+    private static void logStart(ReplayOptions opts, int returnBars, int expectedPoints, TimescaleConfig cfg,
+                                 int calmBars, double speed) {
+        LOG.info("replay {} {}/{}: {} bars -> {} window-points (window={}, tau={}), calmBars={}, speed={}x",
+                opts.event(), opts.market(), opts.timescale(), returnBars, expectedPoints, cfg.window(),
+                fmt(cfg.edgeThreshold(), 2), calmBars, fmt(speed, 1));
+    }
+
+    private static void logDone(RunSummary summary) {
+        LOG.info("replay complete: {} detection points, {} fires, {} published",
+                summary.detectionPoints(), summary.fires(), summary.published());
     }
 
     private static String fmt(double v, int decimals) {
