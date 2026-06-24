@@ -1,7 +1,11 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline.cli;
 
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.LoggingObserver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.LoggingSink;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.ObservationPolicy;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObserver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.SignalSink;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.ThinningObserver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.replay.PacedReplay;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.replay.ReplayClock;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.replay.ReplayOptions;
@@ -83,6 +87,7 @@ public final class PipelineCli {
         Integer calmBars = null;
         Integer limit = null;
         int heartbeatEvery = 1;
+        String observe = "all";
         boolean verbose = false;
 
         for (int i = 1; i < args.length; i++) {
@@ -101,6 +106,7 @@ public final class PipelineCli {
                 case "--calm-bars" -> calmBars = parseInt(value(args, ++i, a), a);
                 case "--limit" -> limit = parseInt(value(args, ++i, a), a);
                 case "--heartbeat-every" -> heartbeatEvery = parseInt(value(args, ++i, a), a);
+                case "--observe" -> observe = value(args, ++i, a);
                 case "--universe" -> universe = value(args, ++i, a);
                 case "--from" -> from = value(args, ++i, a);
                 case "--to" -> to = value(args, ++i, a);
@@ -134,9 +140,41 @@ public final class PipelineCli {
                 limit, heartbeatEvery, universe == null ? null : Path.of(universe),
                 parseDate(from, "--from"), parseDate(to, "--to"));
 
+        ObservationPolicy policy = parseObserve(observe);
+        // Fires go to the product sink (loud WARN banner); the full transition series goes to the
+        // observer, gated by --observe and thinned by --heartbeat-every — both the consumer's choice.
         SignalSink sink = new LoggingSink();
-        PacedReplay.run(Path.of(dataDir), opts, sink, ReplayClock.of(speed, maxStepMs));
+        PipelineObserver observer = heartbeatEvery > 1
+                ? new ThinningObserver(new LoggingObserver(), heartbeatEvery)
+                : new LoggingObserver();
+        PacedReplay.run(Path.of(dataDir), opts, sink, observer, policy, ReplayClock.of(speed, maxStepMs));
         return 0;
+    }
+
+    /**
+     * Parses the {@code --observe} spec into an {@link ObservationPolicy}: {@code all}, {@code fires},
+     * {@code change>=<x>} (raw weighted-change magnitude) or {@code activation>=<x>} (CUSUM threshold
+     * fraction).
+     */
+    private static ObservationPolicy parseObserve(String spec) {
+        if (spec.equals("all")) {
+            return ObservationPolicy.all();
+        }
+        if (spec.equals("fires")) {
+            return ObservationPolicy.firesOnly();
+        }
+        int sep = spec.indexOf(">=");
+        if (sep > 0) {
+            String key = spec.substring(0, sep);
+            double threshold = parseDouble(spec.substring(sep + 2), "--observe");
+            if (key.equals("change")) {
+                return ObservationPolicy.minWeightedChange(threshold);
+            }
+            if (key.equals("activation")) {
+                return ObservationPolicy.minActivation(threshold);
+            }
+        }
+        throw new UsageException("--observe expects all|fires|change>=<x>|activation>=<x>, got [" + spec + "]");
     }
 
     private static String value(String[] args, int i, String option) {
@@ -200,7 +238,8 @@ public final class PipelineCli {
                   --max-step-ms <ms>          cap on per-bar sleep so session gaps don't stall (default: 2000)
                   --calm-bars <N>             window-points used to calibrate (default: ~40% of the series)
                   --limit <N>                 stop after N detection points (default: unlimited)
-                  --heartbeat-every <N>       log a calm heartbeat every N points (default: 1)
+                  --heartbeat-every <N>       forward one observation in every N (default: 1)
+                  --observe <spec>            which transitions to log: all|fires|change>=<x>|activation>=<x> (default: all)
                   --universe <path>           symbol-list CSV (default: <data-dir>/<event>_universe.csv)
                   --from <YYYY-MM-DD>          earliest UTC bar date to keep
                   --to <YYYY-MM-DD>           latest UTC bar date to keep

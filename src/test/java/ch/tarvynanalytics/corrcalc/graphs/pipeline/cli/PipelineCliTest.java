@@ -103,6 +103,12 @@ class PipelineCliTest {
     }
 
     @Test
+    void run_BadObserve_Exit2() {
+        assertEquals(2, run("replay", "dir", "--event", "e", "--market", "crypto", "--observe", "bogus"));
+        assertTrue(err.toString(StandardCharsets.UTF_8).contains("--observe"));
+    }
+
+    @Test
     void run_UnsupportedMarket_Exit2() {
         assertEquals(2, run("replay", "dir", "--event", "e", "--market", "forex", "--max-step-ms", "0"));
         assertTrue(err.toString(StandardCharsets.UTF_8).contains("unsupported market"));
@@ -125,7 +131,8 @@ class PipelineCliTest {
         }
 
         int code = run("replay", dir.toString(), "--event", event, "--market", "crypto",
-                "--timescale", "daily", "--speed", "100000", "--max-step-ms", "0");
+                "--timescale", "daily", "--speed", "100000", "--max-step-ms", "0",
+                "--observe", "activation>=0.5");
 
         assertEquals(0, code, err.toString(StandardCharsets.UTF_8));
         assertFalse(appender.list.isEmpty(), "the replay should have logged at least a start/summary line");
