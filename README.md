@@ -4,13 +4,23 @@ The **Initiative-S S4** streaming structural-change pipeline service — the int
 that wires the two Initiative-S primitives into one product:
 
 ```
- MarketDataSource → ReturnBuilder → S1 online correlation → S3 temporal change → SignalFilter → SignalSink
-   (saved CSVs)      (log returns,    (corrcalc-lib:          (graphs-algos-lib:    (#1a no-op       (multi-sink
-                      UTC-day reset)   RollingCorrelations)    ChangeDetector)       default)         fan-out)
+                         ┌──────────────────── PipelineEngine (the hub) ───────────────────────┐
+ MarketDataSource ─poll→ ReturnBuilder ─returns→  S1 online corr ─matrices→ S3 temporal change ─┤
+   (a source:            (log returns,            (corrcalc-lib:            (graphs-algos-lib:   │
+    stored bars / live)   drop session-first)      RollingCorrelations)      ChangeDetector)     │
+                                                                                                 │
+   PipelineDriver pulls the source, builds returns, paces, and feeds the engine ───────────────┘
+                                                          │
+                            fire? ┌─────────────────────────────────────────────┐ every transition
+                       StructuralSignal → SignalFilter → SignalSink   │   PipelineObservation → ObservationPolicy → PipelineObserver
+                          (the censored product fire-stream)          │        (the full series; the consumer's policy decides)
 ```
 
 Its product is a **published structural-change signal** (`StructuralSignal`), not a UI — a
-B2B *signal-as-a-product*. A dashboard (S5) becomes one consumer of this stream.
+B2B *signal-as-a-product*. A dashboard (S5) becomes one consumer of this stream. Every box above is
+real: `engine.PipelineEngine` is the source-agnostic orchestrator, `PipelineDriver` connects a
+`MarketDataSource` (inbound seam) to it, and the two output seams (fires vs. observations) are
+described under *Two output seams* below.
 
 It depends on two private libraries from this org:
 
@@ -133,6 +143,31 @@ The pipeline emits on **two distinct seams**, and *what crosses each is the cons
 So "push every tick, only fires, or just the big moves" is a one-line policy on whoever composes the
 pipeline — not a property baked into the engine.
 
+### Consuming a live market-data stream
+
+The pipeline pulls its input through one inbound SPI, `source.MarketDataSource`, so a provider plugs in
+by implementing a single blocking `poll()` that yields **aligned cross-sections** (`MarketSnapshot` =
+one timestamp + a close per universe symbol). `PipelineDriver` does the rest — turning prices into log
+returns (`ReturnBuilder`), feeding the engine, and pacing:
+
+```java
+MarketDataSource feed = new MyBrokerWebSocketSource(universe);     // your connector: poll() blocks for the next bar
+ReturnBuilder    builder = new ReturnBuilder(universe, SessionPolicy.INTRADAY_UTC_DAY);
+PipelineEngine   engine  = PipelineEngine.builder(universe, TimescaleConfig.cryptoIntraday())
+        .calmBars(480).market("crypto").timescale("intraday")
+        .sink(new LoggingSink())                                   // product fires
+        .observer(new LoggingObserver())                          // full series
+        .observationPolicy(ObservationPolicy.minActivation(0.5))  // …consumer's choice
+        .build();
+
+PipelineDriver.run(feed, builder, engine, Pace.none());           // live: no artificial pacing
+```
+
+A replay is the same composition with an `IterableMarketDataSource` over stored bars and a `ReplayClock`
+as the `Pace` (exactly what `PacedReplay` wires for the CLI). **Bar alignment** — waiting for the slowest
+symbol of a bar, gap handling — is the connector's job behind `poll()`; real websocket/REST connectors
+are the S2 deliverable. The seam, the in-memory source, the `ReturnBuilder` and the driver ship here.
+
 ## Layout
 
 ```
@@ -142,11 +177,12 @@ ch.tarvynanalytics.corrcalc.graphs.pipeline
 ├── LoggingSink / FanOutSink / CollectingSink  # concrete sinks (LoggingSink highlights fires)
 ├── PipelineObservation / PipelineObserver / ObservationPolicy  # the observation seam (every transition)
 ├── LoggingObserver / ThinningObserver   # the heartbeat observer + a thinning decorator
-├── engine/                              # PipelineEngine — the source-agnostic orchestrator (the hub)
-├── data/                                # CSV bars → aligned log-return panels (UTC-day sessions)
+├── source/                              # MarketDataSource SPI + MarketSnapshot + IterableMarketDataSource (inbound seam)
+├── engine/                              # PipelineEngine (hub) + PipelineDriver + Pace
+├── data/                                # bars → aligned snapshots (PriceSnapshots) → log returns (ReturnBuilder / ReturnPanels)
 ├── detect/                              # the density-level baseline alert + S3 wiring
 ├── backtest/                            # per-event scoring + the n=8 lead-table regression driver
-├── replay/                              # the wall-clock-paced replay driver over the engine (the CLI's core)
+├── replay/                              # the wall-clock-paced replay driver over the source seam (the CLI's core)
 └── cli/                                 # PipelineCli — the `java -jar` entry point (`replay` verb)
 ```
 

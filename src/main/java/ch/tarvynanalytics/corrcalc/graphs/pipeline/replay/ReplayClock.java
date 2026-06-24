@@ -1,5 +1,7 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline.replay;
 
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.engine.Pace;
+
 import java.time.Duration;
 import java.time.Instant;
 
@@ -9,8 +11,11 @@ import java.time.Instant;
  * (the overnight hole the panel leaves between UTC days) never stalls the view. The duration maths is
  * the pure, side-effect-free {@link #stepMillis} (unit-tested directly); {@link #pace} is the thin
  * sleeping wrapper. {@link #noSleep()} yields an instant clock for tests.
+ *
+ * <p>It is the replay's {@link Pace}: the {@code PipelineDriver} calls {@link #between} between detection
+ * bars, which a live run satisfies with {@link Pace#none()} instead.</p>
  */
-public final class ReplayClock {
+public final class ReplayClock implements Pace {
 
     private final double speed;
     private final long maxStepMs;
@@ -86,6 +91,12 @@ public final class ReplayClock {
                 Thread.currentThread().interrupt();
             }
         }
+    }
+
+    /** {@link Pace} adapter: the driver's between-bars hook is this clock's paced sleep. */
+    @Override
+    public void between(Instant prev, Instant cur) {
+        pace(prev, cur);
     }
 
     /** The speed multiplier. */
