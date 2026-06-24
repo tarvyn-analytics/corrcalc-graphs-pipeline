@@ -2,7 +2,7 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-    <groupId>ch.tarvynanalytics.pipeline</groupId>
+    <groupId>ch.tarvynanalytics.corrcalc.graphs</groupId>
     <artifactId>corrcalc-graphs-pipeline</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <packaging>jar</packaging>
@@ -25,6 +25,10 @@
         <junit.version>5.12.2</junit.version>
         <corrcalc-lib.version>1.2.2-SNAPSHOT</corrcalc-lib.version>
         <graphs-algos-lib.version>0.1.0-SNAPSHOT</graphs-algos-lib.version>
+        <!-- Logging: the CLI/replay edge wires slf4j + logback. The asset-agnostic core libs stay
+             dependency-lean; this consumer module is the only place runtime deps are allowed. -->
+        <slf4j.version>2.0.16</slf4j.version>
+        <logback.version>1.5.12</logback.version>
         <!-- SonarCloud analysis (same organization as the corrcalc/graphs repos). -->
         <sonar.organization>tarvyn-analytics</sonar.organization>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
@@ -37,7 +41,9 @@
              series) as read-once carriers — they are never compared, hashed or printed (test
              comparisons use assertArrayEquals on the components), and List<List<Double>> would
              break the engine's double[]-row hot path. Same precedent as graphs-algos-lib's e4. -->
-        <sonar.issue.ignore.multicriteria>e1,e2,e3,e4</sonar.issue.ignore.multicriteria>
+        <!-- e5/e6: the CLI is the one place a console + System.exit are sanctioned (same precedent as
+             graphs-algos-lib's cli package); silence S106 (console use) and S1147 (System.exit). -->
+        <sonar.issue.ignore.multicriteria>e1,e2,e3,e4,e5,e6</sonar.issue.ignore.multicriteria>
         <sonar.issue.ignore.multicriteria.e1.ruleKey>java:S5778</sonar.issue.ignore.multicriteria.e1.ruleKey>
         <sonar.issue.ignore.multicriteria.e1.resourceKey>**/*Test.java</sonar.issue.ignore.multicriteria.e1.resourceKey>
         <sonar.issue.ignore.multicriteria.e2.ruleKey>java:S6218</sonar.issue.ignore.multicriteria.e2.ruleKey>
@@ -45,7 +51,11 @@
         <sonar.issue.ignore.multicriteria.e3.ruleKey>java:S6218</sonar.issue.ignore.multicriteria.e3.ruleKey>
         <sonar.issue.ignore.multicriteria.e3.resourceKey>**/detect/DensityChangeSeries.java</sonar.issue.ignore.multicriteria.e3.resourceKey>
         <sonar.issue.ignore.multicriteria.e4.ruleKey>java:S6218</sonar.issue.ignore.multicriteria.e4.ruleKey>
-        <sonar.issue.ignore.multicriteria.e4.resourceKey>**/replay/TimescaleScoring.java</sonar.issue.ignore.multicriteria.e4.resourceKey>
+        <sonar.issue.ignore.multicriteria.e4.resourceKey>**/backtest/TimescaleScoring.java</sonar.issue.ignore.multicriteria.e4.resourceKey>
+        <sonar.issue.ignore.multicriteria.e5.ruleKey>java:S106</sonar.issue.ignore.multicriteria.e5.ruleKey>
+        <sonar.issue.ignore.multicriteria.e5.resourceKey>**/cli/*.java</sonar.issue.ignore.multicriteria.e5.resourceKey>
+        <sonar.issue.ignore.multicriteria.e6.ruleKey>java:S1147</sonar.issue.ignore.multicriteria.e6.ruleKey>
+        <sonar.issue.ignore.multicriteria.e6.resourceKey>**/cli/*.java</sonar.issue.ignore.multicriteria.e6.resourceKey>
     </properties>
 
     <distributionManagement>
@@ -104,6 +114,20 @@
             <groupId>ch.tarvynanalytics.graphs</groupId>
             <artifactId>graphs-algos-lib</artifactId>
             <version>${graphs-algos-lib.version}</version>
+        </dependency>
+
+        <!-- Logging facade (compile) + logback backend (runtime, swappable). The replay engine and
+             the LoggingSink program only against the slf4j API; logback is the shipped binding. -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>${logback.version}</version>
+            <scope>runtime</scope>
         </dependency>
 
         <!-- Testing -->
@@ -224,6 +248,56 @@
                                 <goals>
                                     <goal>jar</goal>
                                 </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- `-Pcli` builds a runnable uber-jar (classifier `cli`) with the replay CLI as Main-Class,
+             bundling the upstream libs + logback so `java -jar …-cli.jar replay …` works standalone.
+             It is opt-in: the normal/publish build keeps the thin library jar, so neither the published
+             artifact nor the CI verify/publish flow is affected. -->
+        <profile>
+            <id>cli</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-shade-plugin</artifactId>
+                        <version>3.6.0</version>
+                        <executions>
+                            <execution>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>shade</goal>
+                                </goals>
+                                <configuration>
+                                    <shadedArtifactAttached>true</shadedArtifactAttached>
+                                    <shadedClassifierName>cli</shadedClassifierName>
+                                    <createDependencyReducedPom>false</createDependencyReducedPom>
+                                    <transformers>
+                                        <transformer
+                                                implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                            <mainClass>ch.tarvynanalytics.corrcalc.graphs.pipeline.cli.PipelineCli</mainClass>
+                                        </transformer>
+                                        <!-- merge META-INF/services so logback's SLF4JServiceProvider is found. -->
+                                        <transformer
+                                                implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                                    </transformers>
+                                    <filters>
+                                        <filter>
+                                            <artifact>*:*</artifact>
+                                            <excludes>
+                                                <exclude>module-info.class</exclude>
+                                                <exclude>META-INF/*.SF</exclude>
+                                                <exclude>META-INF/*.DSA</exclude>
+                                                <exclude>META-INF/*.RSA</exclude>
+                                            </excludes>
+                                        </filter>
+                                    </filters>
+                                </configuration>
                             </execution>
                         </executions>
                     </plugin>

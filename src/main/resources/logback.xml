@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Console logging for the replay CLI. The level is driven by a system property the CLI sets from the
+  verbose flag (so main code never compile-depends on logback): -Dcgp.log.level=DEBUG, default INFO.
+  %highlight colorizes by level, so the LoggingSink's WARN-level FUSION / DEFUSION fires stand out in
+  red against the quiet INFO calm heartbeat.
+-->
+<configuration>
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%highlight(%-5level) %d{HH:mm:ss} %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="${cgp.log.level:-INFO}">
+        <appender-ref ref="STDOUT"/>
+    </root>
+</configuration>
