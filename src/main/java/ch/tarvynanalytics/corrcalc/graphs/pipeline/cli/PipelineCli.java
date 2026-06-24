@@ -1,0 +1,222 @@
+package ch.tarvynanalytics.corrcalc.graphs.pipeline.cli;
+
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.LoggingSink;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.SignalSink;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.replay.PacedReplay;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.replay.ReplayClock;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.replay.ReplayOptions;
+
+import java.io.PrintStream;
+import java.io.UncheckedIOException;
+import java.nio.file.Path;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
+
+/**
+ * Command-line entry point for the pipeline. Today it has one subcommand, {@code replay}, which
+ * streams stored bars through the live S1→S3 pipeline at a configurable pace and logs the signal
+ * (the {@code backtest} lead-table reproduction stays a test-only driver, so it has no verb yet).
+ *
+ * <p>Mirrors the family's CLI recipe (graphs-algos-lib {@code ComparabilityCli}): {@link #main} is a
+ * one-liner that delegates to the package-testable {@link #run(String[], PrintStream, PrintStream)},
+ * which returns the exit code without calling {@link System#exit} so behaviour is unit-tested
+ * directly. Exit codes: {@code 0} ran, {@code 2} usage/bad-argument, {@code 1} input-IO.</p>
+ */
+public final class PipelineCli {
+
+    private PipelineCli() {
+    }
+
+    /** JVM entry point. */
+    public static void main(String[] args) {
+        System.exit(run(args, System.out, System.err));
+    }
+
+    /**
+     * Parses {@code args} and runs the requested command.
+     *
+     * @param args the command-line arguments
+     * @param out  the standard-output stream (usage/help)
+     * @param err  the error stream (diagnostics)
+     * @return the process exit code ({@code 0} ran / {@code 2} usage / {@code 1} input-IO)
+     */
+    public static int run(String[] args, PrintStream out, PrintStream err) {
+        if (args.length == 0) {
+            usage(err);
+            return 2;
+        }
+        String command = args[0];
+        if (command.equals("-h") || command.equals("--help")) {
+            usage(out);
+            return 0;
+        }
+        if (!command.equals("replay")) {
+            err.println("error: unknown command [" + command + "]");
+            usage(err);
+            return 2;
+        }
+        try {
+            return runReplay(args, out, err);
+        } catch (UsageException e) {
+            err.println("error: " + e.getMessage());
+            usage(err);
+            return 2;
+        } catch (IllegalArgumentException e) {
+            err.println("error: " + e.getMessage());
+            return 2;
+        } catch (UncheckedIOException e) {
+            err.println("io error: " + e.getMessage());
+            return 1;
+        }
+    }
+
+    private static int runReplay(String[] args, PrintStream out, PrintStream err) {
+        String dataDir = null;
+        String event = null;
+        String market = null;
+        String timescale = "intraday";
+        String universe = null;
+        String from = null;
+        String to = null;
+        double speed = 60.0;
+        long maxStepMs = 2000L;
+        Integer calmBars = null;
+        Integer limit = null;
+        int heartbeatEvery = 1;
+        boolean verbose = false;
+
+        for (int i = 1; i < args.length; i++) {
+            String a = args[i];
+            switch (a) {
+                case "-h", "--help" -> {
+                    usage(out);
+                    return 0;
+                }
+                case "-v", "--verbose" -> verbose = true;
+                case "--event" -> event = value(args, ++i, a);
+                case "--market" -> market = value(args, ++i, a);
+                case "--timescale" -> timescale = value(args, ++i, a);
+                case "--speed" -> speed = parseDouble(value(args, ++i, a), a);
+                case "--max-step-ms" -> maxStepMs = parseLong(value(args, ++i, a), a);
+                case "--calm-bars" -> calmBars = parseInt(value(args, ++i, a), a);
+                case "--limit" -> limit = parseInt(value(args, ++i, a), a);
+                case "--heartbeat-every" -> heartbeatEvery = parseInt(value(args, ++i, a), a);
+                case "--universe" -> universe = value(args, ++i, a);
+                case "--from" -> from = value(args, ++i, a);
+                case "--to" -> to = value(args, ++i, a);
+                default -> {
+                    if (a.startsWith("-")) {
+                        throw new UsageException("unknown option [" + a + "]");
+                    }
+                    if (dataDir != null) {
+                        throw new UsageException("unexpected extra argument [" + a + "]");
+                    }
+                    dataDir = a;
+                }
+            }
+        }
+
+        if (dataDir == null) {
+            throw new UsageException("missing <data-dir>");
+        }
+        if (event == null) {
+            throw new UsageException("missing required --event");
+        }
+        if (market == null) {
+            throw new UsageException("missing required --market");
+        }
+
+        if (verbose) {
+            System.setProperty("cgp.log.level", "DEBUG");
+        }
+
+        ReplayOptions opts = new ReplayOptions(event, market, timescale, speed, maxStepMs, calmBars,
+                limit, heartbeatEvery, universe == null ? null : Path.of(universe),
+                parseDate(from, "--from"), parseDate(to, "--to"));
+
+        SignalSink sink = new LoggingSink();
+        PacedReplay.run(Path.of(dataDir), opts, sink, ReplayClock.of(speed, maxStepMs));
+        return 0;
+    }
+
+    private static String value(String[] args, int i, String option) {
+        if (i >= args.length) {
+            throw new UsageException("missing value for " + option);
+        }
+        return args[i];
+    }
+
+    private static double parseDouble(String s, String option) {
+        try {
+            return Double.parseDouble(s);
+        } catch (NumberFormatException e) {
+            throw new UsageException(option + " expects a number, got [" + s + "]");
+        }
+    }
+
+    private static long parseLong(String s, String option) {
+        try {
+            return Long.parseLong(s);
+        } catch (NumberFormatException e) {
+            throw new UsageException(option + " expects an integer, got [" + s + "]");
+        }
+    }
+
+    private static int parseInt(String s, String option) {
+        try {
+            return Integer.parseInt(s);
+        } catch (NumberFormatException e) {
+            throw new UsageException(option + " expects an integer, got [" + s + "]");
+        }
+    }
+
+    private static LocalDate parseDate(String s, String option) {
+        if (s == null) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(s);
+        } catch (DateTimeParseException e) {
+            throw new UsageException(option + " expects an ISO date (YYYY-MM-DD), got [" + s + "]");
+        }
+    }
+
+    private static void usage(PrintStream w) {
+        w.println("""
+                corrcalc-graphs-pipeline — live structural-signal replay
+
+                Usage:
+                  java -jar corrcalc-graphs-pipeline-<v>-cli.jar replay <data-dir> [options]
+
+                <data-dir>  directory of <SYMBOL>_<freq>_<event>.csv OHLCV bar files
+
+                Required:
+                  --event <name>              event id selecting the bar files + default universe
+                  --market <name>             market config + output label (supported: crypto)
+
+                Options:
+                  --timescale intraday|daily  which stream to replay (default: intraday)
+                  --speed <multiplier>        simulated:real time ratio; higher = faster (default: 60)
+                  --max-step-ms <ms>          cap on per-bar sleep so session gaps don't stall (default: 2000)
+                  --calm-bars <N>             window-points used to calibrate (default: ~40% of the series)
+                  --limit <N>                 stop after N detection points (default: unlimited)
+                  --heartbeat-every <N>       log a calm heartbeat every N points (default: 1)
+                  --universe <path>           symbol-list CSV (default: <data-dir>/<event>_universe.csv)
+                  --from <YYYY-MM-DD>          earliest UTC bar date to keep
+                  --to <YYYY-MM-DD>           latest UTC bar date to keep
+                  -v, --verbose               DEBUG logging
+                  -h, --help                  this help
+
+                Example:
+                  java -jar …-cli.jar replay ./crypto-data --event may2021_selloff \\
+                    --market crypto --timescale intraday --speed 500
+                """);
+    }
+
+    /** Signals a command-line usage error (exit code 2). */
+    private static final class UsageException extends RuntimeException {
+        UsageException(String message) {
+            super(message);
+        }
+    }
+}
