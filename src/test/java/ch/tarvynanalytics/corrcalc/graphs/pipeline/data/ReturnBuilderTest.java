@@ -13,12 +13,26 @@ import java.util.Optional;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ReturnBuilderTest {
 
     private static final double EPS = 1e-15;
+
+    @Test
+    void returnBar_EqualsHashCodeToString_CompareReturnsByContent() {
+        ReturnBuilder.ReturnBar a = new ReturnBuilder.ReturnBar(Instant.EPOCH, new double[]{0.1, 0.2});
+        ReturnBuilder.ReturnBar b = new ReturnBuilder.ReturnBar(Instant.EPOCH, new double[]{0.1, 0.2});
+        ReturnBuilder.ReturnBar diff = new ReturnBuilder.ReturnBar(Instant.EPOCH, new double[]{0.1, 0.9});
+
+        assertEquals(a, b);
+        assertEquals(a.hashCode(), b.hashCode());
+        assertNotEquals(a, diff);
+        assertNotEquals(a, "not a bar");
+        assertTrue(a.toString().contains("0.2"), a.toString());
+    }
 
     // The oracle: streaming align -> ReturnBuilder must reproduce the batch ReturnPanels bar-for-bar.
 

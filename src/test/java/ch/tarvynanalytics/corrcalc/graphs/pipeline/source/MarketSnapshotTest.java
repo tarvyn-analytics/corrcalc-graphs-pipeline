@@ -5,9 +5,24 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MarketSnapshotTest {
+
+    @Test
+    void equalsHashCodeToString_CompareClosesByContent() {
+        MarketSnapshot a = new MarketSnapshot(Instant.EPOCH, new double[]{1.0, 2.0});
+        MarketSnapshot b = new MarketSnapshot(Instant.EPOCH, new double[]{1.0, 2.0});
+        MarketSnapshot diff = new MarketSnapshot(Instant.EPOCH, new double[]{1.0, 3.0});
+
+        assertEquals(a, b);                       // same content -> equal
+        assertEquals(a.hashCode(), b.hashCode());
+        assertNotEquals(a, diff);
+        assertNotEquals(a, "not a snapshot");
+        assertTrue(a.toString().contains("2.0"), a.toString());
+    }
 
     @Test
     void constructor_DefensivelyCopiesCloses() {
