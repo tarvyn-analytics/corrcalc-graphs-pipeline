@@ -53,10 +53,14 @@ bytecode, which a release-25 consumer resolves without issue.
    bar-for-bar. Reproduce it; do not "improve" the numerics — divergence is a bug until proven
    otherwise. S1's matrix path is already pinned to it in corrcalc-lib (Oracle B); S3's metric in
    graphs-algos-lib. This repo pins the *wiring + alert layer + orchestration*.
-7. **SPI implementations are package-private where they can be.** Public surface is the SPIs
-   (`SignalFilter`, `SignalSink`), the event records (`StructuralSignal`, `SignalKind`), the
-   public entry points (the orchestrator + driver), and the config records. Validation throws
-   with the offending value(s) in brackets.
+7. **SPI implementations are package-private where they can be.** Public surface is the output SPIs —
+   the fire-stream (`SignalFilter`, `SignalSink`) and the observation seam (`PipelineObserver`,
+   `ObservationPolicy`) — the event/observation records (`StructuralSignal`, `SignalKind`,
+   `PipelineObservation`), the orchestrator + entry points (`engine.PipelineEngine`, the replay
+   driver, the CLI), and the config records. The two output seams are kept distinct: the fire-stream
+   is the censored product (filter-passed fires only); the observation seam carries every transition
+   and the *consumer's* `ObservationPolicy` — never the engine — decides what is forwarded. Validation
+   throws with the offending value(s) in brackets.
 8. **Coverage gates 80% line / 70% branch** are enforced by `verify`. New code arrives with tests
    in the same commit.
 

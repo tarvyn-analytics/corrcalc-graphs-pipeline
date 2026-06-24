@@ -1,8 +1,11 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline.replay;
 
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.CollectingSink;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.ObservationPolicy;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObserver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.SignalKind;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.ReturnPanel;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.engine.RunSummary;
 import ch.tarvynanalytics.graphs.algos.DetectorConfig;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.TimescaleConfig;
 import org.junit.jupiter.api.Test;
@@ -29,7 +32,7 @@ class PacedReplayTest {
         ReturnPanel panel = panel(48, 24, 4, 42L);
         CollectingSink sink = new CollectingSink();
 
-        PacedReplay.Summary summary = PacedReplay.stream(panel, CFG, options(null), sink, ReplayClock.noSleep());
+        RunSummary summary = PacedReplay.stream(panel, CFG, options(null), sink, PipelineObserver.noOp(), ObservationPolicy.all(), ReplayClock.noSleep());
 
         assertTrue(summary.fires() >= 1, "expected at least one fusion fire");
         assertEquals(summary.fires(), summary.published(), "acceptAll filter publishes every fire");
@@ -43,7 +46,7 @@ class PacedReplayTest {
         ReturnPanel panel = panel(160, 0, 4, 7L);
         CollectingSink sink = new CollectingSink();
 
-        PacedReplay.Summary summary = PacedReplay.stream(panel, CFG, options(null), sink, ReplayClock.noSleep());
+        RunSummary summary = PacedReplay.stream(panel, CFG, options(null), sink, PipelineObserver.noOp(), ObservationPolicy.all(), ReplayClock.noSleep());
 
         assertEquals(0L, summary.fires());
         assertEquals(0, sink.count());
@@ -56,7 +59,7 @@ class PacedReplayTest {
         CollectingSink sink = new CollectingSink();
 
         assertThrows(IllegalArgumentException.class,
-                () -> PacedReplay.stream(panel, CFG, options(null), sink, ReplayClock.noSleep()));
+                () -> PacedReplay.stream(panel, CFG, options(null), sink, PipelineObserver.noOp(), ObservationPolicy.all(), ReplayClock.noSleep()));
     }
 
     @Test
@@ -66,7 +69,7 @@ class PacedReplayTest {
 
         // ask for all 19 calm bars when only 19 points exist → no detection transition left.
         assertThrows(IllegalArgumentException.class,
-                () -> PacedReplay.stream(panel, CFG, options(19), sink, ReplayClock.noSleep()));
+                () -> PacedReplay.stream(panel, CFG, options(19), sink, PipelineObserver.noOp(), ObservationPolicy.all(), ReplayClock.noSleep()));
     }
 
     private static ReplayOptions options(Integer calmBars) {

@@ -107,7 +107,8 @@ INFO  density=1.000  wD=0.312  S+=9.46  S-=0.00
 | `--max-step-ms <ms>` | `2000` | cap on the per-bar sleep so session gaps don't stall the view |
 | `--calm-bars <N>` | ~40% of the series | window-points used to calibrate the detector (a leading warm-up) |
 | `--limit <N>` | unlimited | stop after N detection points |
-| `--heartbeat-every <N>` | `1` | log a calm heartbeat every N points (thin a noisy stream) |
+| `--heartbeat-every <N>` | `1` | forward one observation in every N (thin a noisy stream) |
+| `--observe <spec>` | `all` | which transitions reach the heartbeat: `all` \| `fires` \| `change>=<x>` \| `activation>=<x>` |
 | `--universe <path>` | `<data-dir>/<event>_universe.csv` | explicit symbol-list CSV |
 | `--from` / `--to <YYYY-MM-DD>` | — | optional UTC date filter on bars |
 | `-v, --verbose` | off | DEBUG logging |
@@ -116,17 +117,36 @@ Calibration here is a leading warm-up of the replayed series (a pragmatic choice
 impression), not the rigorous walk-forward calm block the `backtest` regression uses. Exit codes:
 `0` ran, `2` usage/bad-argument, `1` input-IO.
 
+### Two output seams — fires vs. observations
+
+The pipeline emits on **two distinct seams**, and *what crosses each is the consumer's choice*:
+
+- **The product fire-stream** (`StructuralSignal` → `SignalFilter` → `SignalSink`) carries only
+  genuine, filter-passed fires — the censored B2B signal. The CLI prints these as the loud WARN
+  `=== FUSION ===` banner via `LoggingSink`. Unchanged contract: no fire is ever silently dropped.
+- **The observation seam** (`PipelineObservation` → `ObservationPolicy` → `PipelineObserver`) carries
+  *every* scored transition — fired or not. The engine never decides verbosity; the consumer installs
+  an `ObservationPolicy` (`all` / `firesOnly` / `minWeightedChange(τ)` / `minActivation(frac)`, freely
+  composed) that decides which observations reach their observer. `--observe` selects this policy and
+  `--heartbeat-every` thins it; the CLI's `LoggingObserver` prints the quiet INFO heartbeat.
+
+So "push every tick, only fires, or just the big moves" is a one-line policy on whoever composes the
+pipeline — not a property baked into the engine.
+
 ## Layout
 
 ```
 ch.tarvynanalytics.corrcalc.graphs.pipeline
-├── StructuralSignal / SignalKind        # the published event (the product)
-├── SignalFilter / SignalSink            # the output SPIs (filter + multi-sink delivery seam)
+├── StructuralSignal / SignalKind        # the published fire event (the product)
+├── SignalFilter / SignalSink            # the fire-stream SPIs (filter + multi-sink delivery seam)
 ├── LoggingSink / FanOutSink / CollectingSink  # concrete sinks (LoggingSink highlights fires)
+├── PipelineObservation / PipelineObserver / ObservationPolicy  # the observation seam (every transition)
+├── LoggingObserver / ThinningObserver   # the heartbeat observer + a thinning decorator
+├── engine/                              # PipelineEngine — the source-agnostic orchestrator (the hub)
 ├── data/                                # CSV bars → aligned log-return panels (UTC-day sessions)
 ├── detect/                              # the density-level baseline alert + S3 wiring
 ├── backtest/                            # per-event scoring + the n=8 lead-table regression driver
-├── replay/                              # the live, wall-clock-paced replay engine (the CLI's core)
+├── replay/                              # the wall-clock-paced replay driver over the engine (the CLI's core)
 └── cli/                                 # PipelineCli — the `java -jar` entry point (`replay` verb)
 ```
 
