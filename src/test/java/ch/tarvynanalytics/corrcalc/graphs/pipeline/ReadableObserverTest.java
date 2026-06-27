@@ -1,0 +1,62 @@
+package ch.tarvynanalytics.corrcalc.graphs.pipeline;
+
+import ch.tarvynanalytics.graphs.algos.model.ChangeMetrics;
+import org.junit.jupiter.api.Test;
+
+import java.time.Instant;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class ReadableObserverTest {
+
+    @Test
+    void legend_DefinesTheFields() {
+        String legend = ReadableObserver.legend();
+        assertTrue(legend.contains("LEGEND"));
+        assertTrue(legend.contains("density"));
+        assertTrue(legend.contains("act="));
+    }
+
+    @Test
+    void calibrationBanner_ShowsMuSigmaLevelAndThreshold() {
+        String banner = ReadableObserver.calibrationBanner(
+                obs(1.0, 1.0, 0.81, 0.0647, 0.0258, 0.167, 34.0, true));
+        assertTrue(banner.contains("μ=0.0647"), banner);
+        assertTrue(banner.contains("σ=0.0258"), banner);
+        assertTrue(banner.contains("L=0.167"), banner);
+        assertTrue(banner.contains("h=8.00"), banner);
+    }
+
+    @Test
+    void renderLine_FireLine_FlagsSeverityAndReasons() {
+        String line = ReadableObserver.renderLine(obs(1.0, 1.0, 0.81, 0.0647, 0.0258, 0.167, 34.0, true));
+        assertTrue(line.contains("FIRE"), line);
+        assertTrue(line.contains("FUSION fired"), line);
+        assertTrue(line.contains("density=1.000"), line);
+        assertTrue(line.contains("z=+"), line);
+    }
+
+    @Test
+    void renderLine_BlockedLine_ExplainsWhichGateHeldItBack() {
+        // S+ huge but density below L: the reader should see WHY nothing fired
+        String line = ReadableObserver.renderLine(obs(0.936, 0.9, 0.0006, 0.0013, 0.0014, 1.0, 206.0, false));
+        assertTrue(line.contains("held back"), line);
+    }
+
+    @Test
+    void onObservation_RendersBothSeverities_AndRejectsNull() {
+        ReadableObserver observer = new ReadableObserver();
+        observer.onObservation(obs(1.0, 1.0, 0.81, 0.0647, 0.0258, 0.167, 34.0, true));    // FIRE -> WARN path
+        observer.onObservation(obs(0.4, 0.5, 0.05, 0.05, 0.02, 0.5, 1.0, false));          // CALM -> INFO path
+        assertThrows(IllegalArgumentException.class, () -> observer.onObservation(null));
+    }
+
+    private static PipelineObservation obs(double density, double largestFraction, double weightedChange,
+                                           double mu, double sigma, double level, double sPlus, boolean fired) {
+        ChangeMetrics m = new ChangeMetrics(weightedChange, density, 0.1, 1, largestFraction, List.of(2));
+        return new PipelineObservation(Instant.parse("2021-02-12T00:00:00Z"), "crypto", "daily",
+                m, sPlus, 0.0, fired, fired ? SignalKind.FUSION : null, 8.0, mu, sigma, level);
+    }
+}

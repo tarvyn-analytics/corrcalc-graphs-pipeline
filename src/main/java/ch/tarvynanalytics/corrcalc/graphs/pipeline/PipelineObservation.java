@@ -3,6 +3,8 @@ package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 import ch.tarvynanalytics.graphs.algos.model.ChangeMetrics;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * One per-transition observation of the pipeline's internal state — the unit of the
@@ -26,6 +28,10 @@ import java.time.Instant;
  * @param fired            whether this transition opened an alert on the configured firing arm
  * @param firedKind        the fire direction when {@link #fired()}, otherwise {@code null}
  * @param decisionThreshold the CUSUM decision interval {@code h} (in calm-sigma units), {@code > 0}
+ * @param calmMu            the calm-window mean of the weighted-change series (the "normal" move size)
+ * @param calmSigma         the calm-window standard deviation of the weighted-change series (already
+ *                          sigma-floored upstream); {@code <= 0} or NaN makes {@link #zScore()} NaN
+ * @param levelGate         the absolute density level gate {@code L} (a percentile of calm density)
  */
 public record PipelineObservation(
         Instant asOf,
@@ -36,7 +42,15 @@ public record PipelineObservation(
         double cusumSMinus,
         boolean fired,
         SignalKind firedKind,
-        double decisionThreshold) {
+        double decisionThreshold,
+        double calmMu,
+        double calmSigma,
+        double levelGate) {
+
+    /** Activation past this fraction of {@code h} is {@link Severity#WATCH}. */
+    public static final double WATCH_FRACTION = 0.5;
+    /** Activation past this fraction of {@code h} is {@link Severity#WARN}. */
+    public static final double WARN_FRACTION = 0.8;
 
     /** Validates the metric block and the decision threshold (the gauge denominator). */
     public PipelineObservation {
@@ -69,5 +83,96 @@ public record PipelineObservation(
      */
     public double activation() {
         return Math.max(cusumSPlus, cusumSMinus) / decisionThreshold;
+    }
+
+    /**
+     * The structural move in calm-sigma units: {@code (weightedChange − μ) / σ} — "how many standard
+     * deviations above the usual move size this transition was". {@link Double#NaN} on a NaN-change gap
+     * or a non-positive/NaN {@link #calmSigma()} (degenerate calibration).
+     *
+     * @return the z-score of the weighted change against the calm baseline
+     */
+    public double zScore() {
+        if (!(calmSigma > 0.0) || Double.isNaN(magnitude())) {
+            return Double.NaN;
+        }
+        return (magnitude() - calmMu) / calmSigma;
+    }
+
+    /**
+     * Whether the absolute density level gate is open: {@code densityLevel ≥ L}. A NaN density is
+     * treated as below any finite gate (closed), matching the detector's gate semantics.
+     *
+     * @return {@code true} if the density gate would admit a fire this transition
+     */
+    public boolean levelGateOpen() {
+        double density = metrics.densityLevel();
+        return !Double.isNaN(density) && density >= levelGate;
+    }
+
+    /**
+     * The human-facing {@link Severity} tier, derived from {@link #activation()} (or {@link #fired()}).
+     *
+     * @return the severity tier of this transition
+     */
+    public Severity severity() {
+        if (fired) {
+            return Severity.FIRE;
+        }
+        double a = activation();
+        if (a >= WARN_FRACTION) {
+            return Severity.WARN;
+        }
+        if (a >= WATCH_FRACTION) {
+            return Severity.WATCH;
+        }
+        return Severity.CALM;
+    }
+
+    /**
+     * The bounded decision-trace for this transition — the finite set of {@link ReasonCode} facts that
+     * explain the fire/no-fire outcome (the narrator substitute). Includes the magnitude bucket, the
+     * gate/density/component facts, the CUSUM-breach fact, and — when the meter is hot but nothing
+     * fired — <em>why</em> ({@link ReasonCode#BLOCKED_BY_LEVEL_GATE} vs {@link ReasonCode#DEBOUNCED}).
+     *
+     * @return the reason codes in reading order (never {@code null}; possibly empty for a quiet bar)
+     */
+    public List<ReasonCode> reasonCodes() {
+        List<ReasonCode> codes = new ArrayList<>();
+        if (fired) {
+            codes.add(firedKind == SignalKind.DEFUSION ? ReasonCode.FIRE_DEFUSION : ReasonCode.FIRE_FUSION);
+        }
+        double z = zScore();
+        if (z >= 3.0) {
+            codes.add(ReasonCode.MAG_GE_3SIGMA);
+        } else if (z >= 2.0) {
+            codes.add(ReasonCode.MAG_GE_2SIGMA);
+        } else if (z >= 1.0) {
+            codes.add(ReasonCode.MAG_GE_1SIGMA);
+        }
+        boolean levelOpen = levelGateOpen();
+        if (levelOpen) {
+            codes.add(ReasonCode.LEVEL_GATE_OPEN);
+        }
+        if (metrics.densityLevel() >= 0.999) {
+            codes.add(ReasonCode.DENSITY_SATURATED);
+        }
+        if (metrics.largestComponentFraction() >= 0.99) {
+            codes.add(ReasonCode.COMPONENTS_COLLAPSED);
+        }
+        boolean breached = cusumSPlus >= decisionThreshold;   // v1 fires on the upper arm only
+        if (breached) {
+            codes.add(ReasonCode.CUSUM_BREACH);
+        }
+        if (!fired) {
+            if (breached && !levelOpen) {
+                codes.add(ReasonCode.BLOCKED_BY_LEVEL_GATE);
+            } else if (breached) {
+                codes.add(ReasonCode.DEBOUNCED);
+            } else if (activation() >= WATCH_FRACTION) {
+                codes.add(ReasonCode.BUILDING);
+            }
+        }
+        return codes;
     }
 }
