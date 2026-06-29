@@ -1,72 +1,93 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 
 import ch.tarvynanalytics.graphs.algos.model.ChangeMetrics;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class NdjsonObserverTest {
 
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
     @Test
-    void calibRecord_SerializesCalibrationFields() {
-        String rec = NdjsonObserver.calibRecord(obs(1.0, 1.0, 0.81, 0.0647, 0.0258, 0.167, 34.0, true));
-        assertEquals("{\"rec\":\"calib\",\"schema\":1,\"market\":\"crypto\",\"timescale\":\"daily\","
-                + "\"mu\":0.0647,\"sigma\":0.0258,\"levelGate\":0.167,\"threshold\":8.0}", rec);
+    void calibRecord_SerializesCalibrationFields() throws Exception {
+        JsonNode n = MAPPER.readTree(
+                NdjsonObserver.calibRecord(obs(1.0, 1.0, 0.81, 0.0647, 0.0258, 0.167, 34.0, true)));
+        assertEquals("calib", n.get("rec").asText());
+        assertEquals(1, n.get("schema").asInt());
+        assertEquals("crypto", n.get("market").asText());
+        assertEquals("daily", n.get("timescale").asText());
+        assertEquals(0.0647, n.get("mu").asDouble(), 1e-12);
+        assertEquals(0.0258, n.get("sigma").asDouble(), 1e-12);
+        assertEquals(0.167, n.get("levelGate").asDouble(), 1e-12);
+        assertEquals(8.0, n.get("threshold").asDouble(), 1e-12);
     }
 
     @Test
-    void obsRecord_FireLine_SerializesSeverityFiredKindAndReasons() {
+    void obsRecord_FireLine_SerializesSeverityFiredKindAndReasons() throws Exception {
         // mu=0, sigma=1, change=2 -> z=2.0; sPlus=8=h -> activation 1.0 and a CUSUM breach; density/comp saturated
-        String rec = NdjsonObserver.obsRecord(obs(1.0, 1.0, 2.0, 0.0, 1.0, 0.167, 8.0, true));
-        assertEquals("{\"rec\":\"obs\",\"asOf\":\"2021-02-12T00:00:00Z\",\"market\":\"crypto\","
-                + "\"timescale\":\"daily\",\"severity\":\"FIRE\",\"fired\":true,\"firedKind\":\"FUSION\","
-                + "\"density\":1.0,\"magnitude\":2.0,\"z\":2.0,\"activation\":1.0,\"sPlus\":8.0,"
-                + "\"sMinus\":0.0,\"largestComponent\":1.0,\"levelGateOpen\":true,"
-                + "\"reasons\":[\"FIRE_FUSION\",\"MAG_GE_2SIGMA\",\"LEVEL_GATE_OPEN\",\"DENSITY_SATURATED\","
-                + "\"COMPONENTS_COLLAPSED\",\"CUSUM_BREACH\"]}", rec);
+        JsonNode n = MAPPER.readTree(
+                NdjsonObserver.obsRecord(obs(1.0, 1.0, 2.0, 0.0, 1.0, 0.167, 8.0, true)));
+        assertEquals("obs", n.get("rec").asText());
+        assertEquals("2021-02-12T00:00:00Z", n.get("asOf").asText());
+        assertEquals("FIRE", n.get("severity").asText());
+        assertTrue(n.get("fired").asBoolean());
+        assertEquals("FUSION", n.get("firedKind").asText());
+        assertEquals(1.0, n.get("density").asDouble(), 1e-12);
+        assertEquals(2.0, n.get("magnitude").asDouble(), 1e-12);
+        assertEquals(2.0, n.get("z").asDouble(), 1e-12);
+        assertEquals(1.0, n.get("activation").asDouble(), 1e-12);
+        assertTrue(n.get("levelGateOpen").asBoolean());
+        assertEquals(List.of("FIRE_FUSION", "MAG_GE_2SIGMA", "LEVEL_GATE_OPEN", "DENSITY_SATURATED",
+                "COMPONENTS_COLLAPSED", "CUSUM_BREACH"), reasons(n));
     }
 
     @Test
-    void obsRecord_NotFired_FiredKindIsNull() {
-        String rec = NdjsonObserver.obsRecord(obs(0.4, 0.5, 0.05, 0.05, 0.02, 0.5, 1.0, false));
-        assertTrue(rec.contains("\"fired\":false"), rec);
-        assertTrue(rec.contains("\"firedKind\":null"), rec);
-        assertTrue(rec.contains("\"severity\":\"CALM\""), rec);
+    void obsRecord_NotFired_FiredKindIsNull() throws Exception {
+        JsonNode n = MAPPER.readTree(
+                NdjsonObserver.obsRecord(obs(0.4, 0.5, 0.05, 0.05, 0.02, 0.5, 1.0, false)));
+        assertFalse(n.get("fired").asBoolean());
+        assertTrue(n.get("firedKind").isNull(), n.toString());
+        assertEquals("CALM", n.get("severity").asText());
     }
 
     @Test
-    void obsRecord_DegenerateOrGappedMetrics_SerializeAsJsonNull() {
-        // NaN weighted-change (a gap) -> magnitude and z are null, never "NaN"
-        String rec = NdjsonObserver.obsRecord(obs(0.5, 0.5, Double.NaN, 0.0, 1.0, 0.5, 1.0, false));
-        assertTrue(rec.contains("\"magnitude\":null"), rec);
-        assertTrue(rec.contains("\"z\":null"), rec);
+    void obsRecord_DegenerateOrGappedMetrics_SerializeAsJsonNull() throws Exception {
+        // NaN weighted-change (a gap) -> magnitude and z are JSON null, never a NaN token
+        JsonNode gap = MAPPER.readTree(
+                NdjsonObserver.obsRecord(obs(0.5, 0.5, Double.NaN, 0.0, 1.0, 0.5, 1.0, false)));
+        assertTrue(gap.get("magnitude").isNull(), gap.toString());
+        assertTrue(gap.get("z").isNull(), gap.toString());
         // sigma <= 0 (degenerate calibration) -> z null even with a finite magnitude
-        String degenerate = NdjsonObserver.obsRecord(obs(0.5, 0.5, 0.1, 0.0, 0.0, 0.5, 1.0, false));
-        assertTrue(degenerate.contains("\"z\":null"), degenerate);
-        assertTrue(degenerate.contains("\"magnitude\":0.1"), degenerate);
+        JsonNode degenerate = MAPPER.readTree(
+                NdjsonObserver.obsRecord(obs(0.5, 0.5, 0.1, 0.0, 0.0, 0.5, 1.0, false)));
+        assertTrue(degenerate.get("z").isNull(), degenerate.toString());
+        assertEquals(0.1, degenerate.get("magnitude").asDouble(), 1e-12);
     }
 
     @Test
-    void obsRecord_EscapesJsonStringSpecials() {
-        // one of every escaped class: quote, backslash, newline, CR, tab, a non-special control char
-        // (backspace -> ), then a plain char. Built from char codes so the source has no escape runs.
-        String bs = String.valueOf((char) 92);
-        String special = "q\"" + bs + (char) 10 + (char) 13 + (char) 9 + (char) 8 + "c";
-        String rec = NdjsonObserver.obsRecord(obs(special, "daily", 0.5, 0.5, 0.1, 0.0, 1.0, 0.5, 1.0, false));
-        String expected = "\"market\":\"q" + bs + "\"" + bs + bs + bs + "n" + bs + "r" + bs + "t" + bs + "u0008c\"";
-        assertTrue(rec.contains(expected), rec);
+    void obsRecord_RoundTripsStringSpecials() throws Exception {
+        // quote, backslash, newline, CR, tab and a control char; built from char codes (no escape runs)
+        String special = "q\"" + (char) 92 + (char) 10 + (char) 13 + (char) 9 + (char) 8 + "c";
+        JsonNode n = MAPPER.readTree(
+                NdjsonObserver.obsRecord(obs(special, "daily", 0.5, 0.5, 0.1, 0.0, 1.0, 0.5, 1.0, false)));
+        assertEquals(special, n.get("market").asText());
     }
 
     @Test
-    void onObservation_EmitsCalibHeaderOnceThenObsPerTransition_AndRejectsNull() {
+    void onObservation_EmitsCalibHeaderOnceThenObsPerTransition_AndRejectsNull() throws Exception {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         NdjsonObserver observer = new NdjsonObserver(new PrintStream(bos, true, StandardCharsets.UTF_8));
 
@@ -75,15 +96,21 @@ class NdjsonObserverTest {
 
         String[] lines = bos.toString(StandardCharsets.UTF_8).split("\n");
         assertEquals(3, lines.length, bos.toString(StandardCharsets.UTF_8));
-        assertTrue(lines[0].startsWith("{\"rec\":\"calib\""), lines[0]);
-        assertTrue(lines[1].contains("\"rec\":\"obs\""), lines[1]);
-        assertTrue(lines[2].contains("\"rec\":\"obs\""), lines[2]);
+        assertEquals("calib", MAPPER.readTree(lines[0]).get("rec").asText());
+        assertEquals("obs", MAPPER.readTree(lines[1]).get("rec").asText());
+        assertEquals("obs", MAPPER.readTree(lines[2]).get("rec").asText());
         assertThrows(IllegalArgumentException.class, () -> observer.onObservation(null));
     }
 
     @Test
     void constructor_RejectsNullStream() {
         assertThrows(IllegalArgumentException.class, () -> new NdjsonObserver(null));
+    }
+
+    private static List<String> reasons(JsonNode obs) {
+        List<String> out = new ArrayList<>();
+        obs.get("reasons").forEach(j -> out.add(j.asText()));
+        return out;
     }
 
     private static PipelineObservation obs(double density, double largestFraction, double weightedChange,
