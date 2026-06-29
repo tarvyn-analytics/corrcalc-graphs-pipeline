@@ -28,6 +28,7 @@ public final class ReadableObserver implements PipelineObserver {
     private static final String SEP = " · ";
 
     private final RunDigest digest = new RunDigest();
+    private final SeverityHysteresis hysteresis = new SeverityHysteresis();
     private boolean headerShown;
 
     @Override
@@ -49,7 +50,7 @@ public final class ReadableObserver implements PipelineObserver {
             headerShown = true;
         }
         digest.add(observation);
-        String line = renderLine(observation);
+        String line = renderLine(observation, hysteresis.step(observation));
         if (observation.severity() == Severity.FIRE) {
             LOG.warn("{}", line);
         } else {
@@ -107,17 +108,30 @@ public final class ReadableObserver implements PipelineObserver {
     }
 
     /**
-     * Renders one annotated transition line.
+     * Renders one annotated transition line with the raw instantaneous {@link Severity} tier.
      *
      * @param o the observation to render
      * @return the human-readable line
      */
     public static String renderLine(PipelineObservation o) {
+        return renderLine(o, o.severity());
+    }
+
+    /**
+     * Renders one annotated transition line with a caller-supplied displayed tier — used by the observer
+     * to show the {@link SeverityHysteresis anti-flapped} tier while every other field stays the raw
+     * per-transition fact.
+     *
+     * @param o          the observation to render
+     * @param displayTier the severity tier to show (raw or hysteresis-smoothed)
+     * @return the human-readable line
+     */
+    public static String renderLine(PipelineObservation o, Severity displayTier) {
         String why = o.reasonCodes().stream().map(ReasonCode::phrase).collect(Collectors.joining(SEP));
         return String.format(Locale.ROOT,
                 "%s  %-5s  density=%s  wΔ=%s (z=%s)  act=%s  S+=%s S-=%s  [%s]",
                 o.asOf(),
-                o.severity(),
+                displayTier,
                 fmt(o.metrics().densityLevel(), 3),
                 fmt(o.magnitude(), 4),
                 fmtSigned(o.zScore(), 1),

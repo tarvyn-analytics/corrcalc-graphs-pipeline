@@ -40,6 +40,13 @@ class ReadableObserverTest {
     }
 
     @Test
+    void renderLine_UsesSuppliedDisplayTier() {
+        // raw severity here is CALM (activation 1/8); the overload shows the supplied (hysteresis) tier
+        String line = ReadableObserver.renderLine(obs(0.4, 0.5, 0.05, 0.05, 0.02, 0.5, 1.0, false), Severity.WARN);
+        assertTrue(line.contains("WARN"), line);
+    }
+
+    @Test
     void renderLine_BlockedLine_ExplainsWhichGateHeldItBack() {
         // S+ huge but density below L: the reader should see WHY nothing fired
         String line = ReadableObserver.renderLine(obs(0.936, 0.9, 0.0006, 0.0013, 0.0014, 1.0, 206.0, false));
