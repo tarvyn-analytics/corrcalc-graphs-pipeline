@@ -1,5 +1,6 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.engine.RunSummary;
 import ch.tarvynanalytics.graphs.algos.model.ChangeMetrics;
 import org.junit.jupiter.api.Test;
 
@@ -51,6 +52,17 @@ class ReadableObserverTest {
         observer.onObservation(obs(1.0, 1.0, 0.81, 0.0647, 0.0258, 0.167, 34.0, true));    // FIRE -> WARN path
         observer.onObservation(obs(0.4, 0.5, 0.05, 0.05, 0.02, 0.5, 1.0, false));          // CALM -> INFO path
         assertThrows(IllegalArgumentException.class, () -> observer.onObservation(null));
+    }
+
+    @Test
+    void digestBlock_SummarizesTheRun() {
+        RunDigest d = new RunDigest();
+        d.add(obs(1.0, 1.0, 0.81, 0.0647, 0.0258, 0.167, 34.0, true));
+        String block = ReadableObserver.digestBlock(d, new RunSummary(5, 1, 1, 5, 18));
+        assertTrue(block.contains("DIGEST"), block);
+        assertTrue(block.contains("FIRE=1"), block);
+        assertTrue(block.contains("fires=1"), block);
+        assertTrue(block.contains("biggest="), block);
     }
 
     private static PipelineObservation obs(double density, double largestFraction, double weightedChange,

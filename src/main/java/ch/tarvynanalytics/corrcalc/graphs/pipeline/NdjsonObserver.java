@@ -1,5 +1,6 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.engine.RunSummary;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -33,6 +34,7 @@ public final class NdjsonObserver implements PipelineObserver {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final PrintStream out;
+    private final RunDigest digest = new RunDigest();
     private boolean headerShown;
 
     /**
@@ -54,7 +56,16 @@ public final class NdjsonObserver implements PipelineObserver {
             emit(calibRecord(observation));
             headerShown = true;
         }
+        digest.add(observation);
         emit(obsRecord(observation));
+    }
+
+    @Override
+    public void onComplete(RunSummary summary) {
+        if (summary == null) {
+            throw new IllegalArgumentException("summary must not be null");
+        }
+        emit(digestRecord(digest, summary));
     }
 
     private void emit(String line) {
@@ -117,12 +128,59 @@ public final class NdjsonObserver implements PipelineObserver {
         return n.toString();
     }
 
+    /**
+     * The terminal {@code digest} record — the run folded into one object: counts by severity, the peak
+     * activation and σ-move, the single biggest move (and when), fired/published, and a time-in-fused
+     * proxy. The counts are over the observations this observer received (see {@link RunDigest}).
+     *
+     * @param d       the accumulated figures
+     * @param summary the run outcome
+     * @return the digest record as a single JSON object
+     */
+    public static String digestRecord(RunDigest d, RunSummary summary) {
+        ObjectNode n = MAPPER.createObjectNode();
+        n.put("rec", "digest");
+        n.put("schema", SCHEMA);
+        putNullable(n, "market", d.market());
+        putNullable(n, "timescale", d.timescale());
+        n.put("detectionPoints", summary.detectionPoints());
+        n.put("fires", summary.fires());
+        n.put("published", summary.published());
+        n.put("calmBars", summary.calmBars());
+        n.put("observed", d.observed());
+        n.put("firedObserved", d.fired());
+        ObjectNode sev = n.putObject("bySeverity");
+        for (Severity s : Severity.values()) {
+            sev.put(s.name(), d.count(s));
+        }
+        putNum(n, "maxActivation", d.maxActivation());
+        putNum(n, "maxAbsZ", d.maxAbsZ());
+        n.put("timeInFused", d.timeInFused());
+        if (d.biggestMoveAt() == null) {
+            n.putNull("biggestMove");
+        } else {
+            ObjectNode bm = n.putObject("biggestMove");
+            putNum(bm, "magnitude", d.biggestMove());
+            bm.put("asOf", d.biggestMoveAt().toString());
+        }
+        return n.toString();
+    }
+
     /** Puts a finite double, or JSON {@code null} for {@link Double#NaN}/±∞ (no {@code NaN} token). */
     private static void putNum(ObjectNode n, String field, double v) {
         if (Double.isFinite(v)) {
             n.put(field, v);
         } else {
             n.putNull(field);
+        }
+    }
+
+    /** Puts a string, or JSON {@code null} when absent (no observation was ever received). */
+    private static void putNullable(ObjectNode n, String field, String value) {
+        if (value == null) {
+            n.putNull(field);
+        } else {
+            n.put(field, value);
         }
     }
 }

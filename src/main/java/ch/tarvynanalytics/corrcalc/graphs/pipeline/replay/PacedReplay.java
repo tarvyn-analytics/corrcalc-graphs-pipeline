@@ -85,6 +85,7 @@ public final class PacedReplay {
         ReturnBuilder builder = new ReturnBuilder(symbols, sessionPolicy);
         RunSummary summary = PipelineDriver.run(source, builder, engine, clock);
         logDone(summary);
+        observer.onComplete(summary);
         return summary;
     }
 
@@ -126,6 +127,7 @@ public final class PacedReplay {
         }
         RunSummary summary = engine.summary();
         logDone(summary);
+        observer.onComplete(summary);
         return summary;
     }
 
