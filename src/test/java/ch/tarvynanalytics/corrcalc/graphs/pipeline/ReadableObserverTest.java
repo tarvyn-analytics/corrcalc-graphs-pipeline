@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -91,10 +92,39 @@ class ReadableObserverTest {
         assertTrue(block.contains("biggest="), block);
     }
 
+    @Test
+    void renderLine_NonCalmBar_ShowsWhoMoved() {
+        PipelineObservation fire = new PipelineObservation(Instant.parse("2021-02-12T00:00:00Z"), "crypto", "daily",
+                new ChangeMetrics(0.81, 1.0, 0.1, 1, 1.0, List.of(2)), 34.0, 0.0, true, SignalKind.FUSION,
+                8.0, 0.0647, 0.0258, 0.167, List.of(new PairContribution("ETH", "BNB", 0.42)));
+        String line = ReadableObserver.renderLine(fire);
+        assertTrue(line.contains("who=ETH–BNB"), line);
+    }
+
+    @Test
+    void renderLine_CalmBar_OmitsWho() {
+        PipelineObservation calm = new PipelineObservation(Instant.parse("2021-02-12T00:00:00Z"), "crypto", "daily",
+                new ChangeMetrics(0.05, 0.5, 0.1, 1, 0.5, List.of(2)), 1.0, 0.0, false, null,
+                8.0, 0.05, 0.02, 0.5, List.of(new PairContribution("ETH", "BNB", 0.01)));
+        String line = ReadableObserver.renderLine(calm);
+        assertTrue(line.contains("CALM"), line);
+        assertFalse(line.contains("who="), line);
+    }
+
+    @Test
+    void digestBlock_ShowsBiggestMoveContributors() {
+        RunDigest d = new RunDigest();
+        d.add(new PipelineObservation(Instant.parse("2021-02-12T00:00:00Z"), "crypto", "daily",
+                new ChangeMetrics(0.81, 1.0, 0.1, 1, 1.0, List.of(2)), 34.0, 0.0, true, SignalKind.FUSION,
+                8.0, 0.0647, 0.0258, 0.167, List.of(new PairContribution("ETH", "BNB", 0.42))));
+        String block = ReadableObserver.digestBlock(d, new RunSummary(5, 1, 1, 5, 18));
+        assertTrue(block.contains("(ETH–BNB)"), block);
+    }
+
     private static PipelineObservation obs(double density, double largestFraction, double weightedChange,
                                            double mu, double sigma, double level, double sPlus, boolean fired) {
         ChangeMetrics m = new ChangeMetrics(weightedChange, density, 0.1, 1, largestFraction, List.of(2));
         return new PipelineObservation(Instant.parse("2021-02-12T00:00:00Z"), "crypto", "daily",
-                m, sPlus, 0.0, fired, fired ? SignalKind.FUSION : null, 8.0, mu, sigma, level);
+                m, sPlus, 0.0, fired, fired ? SignalKind.FUSION : null, 8.0, mu, sigma, level, List.of());
     }
 }

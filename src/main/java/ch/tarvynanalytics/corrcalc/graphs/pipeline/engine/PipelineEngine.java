@@ -10,7 +10,9 @@ import ch.tarvynanalytics.graphs.algos.ChangeDetectors;
 import ch.tarvynanalytics.graphs.algos.ChangeMetricsAnalyzer;
 import ch.tarvynanalytics.graphs.algos.model.ChangeMetrics;
 import ch.tarvynanalytics.graphs.algos.model.ChangeSignal;
+import ch.tarvynanalytics.graphs.algos.model.PairChange;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.ObservationPolicy;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.PairContribution;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObservation;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObserver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.SignalFilter;
@@ -156,6 +158,7 @@ public final class PipelineEngine {
         private PipelineObserver observer = PipelineObserver.noOp();
         private ObservationPolicy policy = ObservationPolicy.all();
         private Integer limit;
+        private int contributorsTopK = 3;
 
         private Builder(String[] symbols, TimescaleConfig cfg) {
             if (symbols == null || symbols.length == 0) {
@@ -219,6 +222,21 @@ public final class PipelineEngine {
             return this;
         }
 
+        /**
+         * How many top {@code |Δr|} contributing pairs each observation carries (default {@code 3});
+         * {@code 0} disables attribution and skips the extra per-transition pass.
+         *
+         * @param k the number of contributing pairs to attach, {@code >= 0}
+         * @return this builder
+         */
+        public Builder contributorsTopK(int k) {
+            if (k < 0) {
+                throw new IllegalArgumentException("contributorsTopK must be >= 0 [" + k + "]");
+            }
+            this.contributorsTopK = k;
+            return this;
+        }
+
         /** Builds the engine, validating the required knobs. */
         public PipelineEngine build() {
             if (calmBars < 2) {
@@ -244,11 +262,13 @@ public final class PipelineEngine {
         private final PipelineObserver observer;
         private final ObservationPolicy policy;
         private final Integer limit;
+        private final int contributorsTopK;
         private final List<String> universe;
 
         private final List<Double> calmChange = new ArrayList<>();
         private final List<Double> calmDensity = new ArrayList<>();
         private double[][] prev;
+        private double[][] detectPrev;
         private ChangeDetector detector;
         private Calibration calibrationResult;
         private int calmIdx;
@@ -269,6 +289,7 @@ public final class PipelineEngine {
             this.observer = b.observer;
             this.policy = b.policy;
             this.limit = b.limit;
+            this.contributorsTopK = b.contributorsTopK;
             this.universe = List.of(b.symbols);
         }
 
@@ -292,6 +313,7 @@ public final class PipelineEngine {
                 calibrationResult = ChangeDetectors.calibrate(toArray(calmChange), toArray(calmDensity), cfg.detector());
                 detector = ChangeDetectors.create(order, cfg.detector(), calibrationResult);
                 detector.onMatrix(current);   // prime the predecessor; first call yields no transition
+                detectPrev = current;         // mirror the detector's predecessor for contributor attribution
                 LOG.info("calibrated on {} calm points: mu={} sigma={} L={} -- detecting...",
                         calmBars, fmt(calibrationResult.mu(), 4), fmt(calibrationResult.sigma(), 4),
                         fmt(calibrationResult.level(), 3));
@@ -301,13 +323,16 @@ public final class PipelineEngine {
         private void detect(Instant asOf, double[][] current) {
             ChangeSignal sig = detector.onMatrix(current);
             if (sig == null) {
-                return;   // first matrix after a session-boundary re-prime: no transition
+                detectPrev = current;   // first matrix after a session-boundary re-prime: no transition
+                return;
             }
             detectionPoints++;
+            List<PairContribution> contributors = contributors(detectPrev, current);
+            detectPrev = current;
             SignalKind kind = sig.fired() ? SignalKind.FUSION : null;
             PipelineObservation obs = new PipelineObservation(asOf, market, timescale, sig.metrics(),
                     sig.sPlus(), sig.sMinus(), sig.fired(), kind, cfg.detector().h(),
-                    calibrationResult.mu(), calibrationResult.sigma(), calibrationResult.level());
+                    calibrationResult.mu(), calibrationResult.sigma(), calibrationResult.level(), contributors);
             if (policy.emit(obs)) {
                 observer.onObservation(obs);
                 observationsEmitted++;
@@ -323,6 +348,23 @@ public final class PipelineEngine {
             if (limit != null && detectionPoints >= limit) {
                 stop = true;
             }
+        }
+
+        /**
+         * The top-k labelled pairs that moved most over {@code prev -> current} — the S3 index-based
+         * contributors ({@link ChangeMetricsAnalyzer#topContributors}) resolved to this run's symbols.
+         * Empty when attribution is disabled ({@code k == 0}) or there is no predecessor yet.
+         */
+        private List<PairContribution> contributors(double[][] prevMatrix, double[][] current) {
+            if (contributorsTopK <= 0 || prevMatrix == null) {
+                return List.of();
+            }
+            List<PairChange> ranked = ChangeMetricsAnalyzer.topContributors(prevMatrix, current, contributorsTopK);
+            List<PairContribution> out = new ArrayList<>(ranked.size());
+            for (PairChange pc : ranked) {
+                out.add(new PairContribution(universe.get(pc.i()), universe.get(pc.j()), pc.absDelta()));
+            }
+            return out;
         }
 
         void onSessionBoundary() {

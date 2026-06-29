@@ -4,6 +4,7 @@ import ch.tarvynanalytics.corrcalc.graphs.pipeline.engine.RunSummary;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
 
@@ -75,7 +76,7 @@ public final class ReadableObserver implements PipelineObserver {
         return """
                 LEGEND  density=fraction of asset-pairs correlated (|r|>τ)   wΔ=structural move (mean|Δr|)
                         z=move size in calm-σ   act=closeness to firing max(S+,S-)/h   sev: CALM<WATCH<WARN<FIRE
-                        [...]=why (an alarm needs density≥L AND act≥1.0)""";
+                        [...]=why (an alarm needs density≥L AND act≥1.0)   who=top pairs by |Δr| (the movers)""";
     }
 
     /**
@@ -128,7 +129,7 @@ public final class ReadableObserver implements PipelineObserver {
      */
     public static String renderLine(PipelineObservation o, Severity displayTier) {
         String why = o.reasonCodes().stream().map(ReasonCode::phrase).collect(Collectors.joining(SEP));
-        return String.format(Locale.ROOT,
+        String line = String.format(Locale.ROOT,
                 "%s  %-5s  density=%s  wΔ=%s (z=%s)  act=%s  S+=%s S-=%s  [%s]",
                 o.asOf(),
                 displayTier,
@@ -139,6 +140,19 @@ public final class ReadableObserver implements PipelineObserver {
                 fmt(o.cusumSPlus(), 2),
                 fmt(o.cusumSMinus(), 2),
                 why.isEmpty() ? "normal" : why);
+        // Attribution stays off CALM lines (keeps the quiet stream terse); it is the actionable add
+        // exactly when something is moving (WATCH/WARN/FIRE).
+        if (displayTier != Severity.CALM && !o.contributors().isEmpty()) {
+            line += "  who=" + who(o.contributors());
+        }
+        return line;
+    }
+
+    /** Compact "who moved" rendering: the contributing pairs as {@code A–B}, comma-separated. */
+    private static String who(List<PairContribution> contributors) {
+        return contributors.stream()
+                .map(c -> c.a() + "–" + c.b())
+                .collect(Collectors.joining(","));
     }
 
     /**
@@ -152,7 +166,8 @@ public final class ReadableObserver implements PipelineObserver {
     public static String digestBlock(RunDigest d, RunSummary s) {
         String biggest = d.biggestMoveAt() == null
                 ? "none"
-                : fmt(d.biggestMove(), 4) + " @ " + d.biggestMoveAt();
+                : fmt(d.biggestMove(), 4) + " @ " + d.biggestMoveAt()
+                        + (d.biggestMoveContributors().isEmpty() ? "" : " (" + who(d.biggestMoveContributors()) + ")");
         return String.format(Locale.ROOT,
                 "DIGEST  %s/%s  %d obs (%d calm)  sev[CALM=%d WATCH=%d WARN=%d FIRE=%d]  "
                         + "fires=%d published=%d  peak act=%s  peak z=%sσ  biggest=%s  fused-bars=%d",

@@ -49,12 +49,29 @@ class RunDigestTest {
         assertEquals(0, d.observed());
         assertEquals(0, d.count(Severity.WARN));
         assertNull(d.market());
+        assertEquals(List.of(), d.biggestMoveContributors());
+    }
+
+    @Test
+    void biggestMove_CarriesItsContributors_ReplacedWhenABiggerMoveArrives() {
+        RunDigest d = new RunDigest();
+        d.add(obsWithContributors("2021-02-10T00:00:00Z", 0.5, List.of(new PairContribution("A", "B", 0.5))));
+        d.add(obsWithContributors("2021-02-12T00:00:00Z", 2.0, List.of(new PairContribution("ETH", "BNB", 2.0))));
+        assertEquals(2.0, d.biggestMove(), 1e-12);
+        assertEquals(List.of(new PairContribution("ETH", "BNB", 2.0)), d.biggestMoveContributors());
     }
 
     private static PipelineObservation obs(String asOf, double density, double largestFraction,
             double weightedChange, double mu, double sigma, double level, double sPlus, boolean fired) {
         ChangeMetrics m = new ChangeMetrics(weightedChange, density, 0.1, 1, largestFraction, List.of(2));
         return new PipelineObservation(Instant.parse(asOf), "crypto", "daily",
-                m, sPlus, 0.0, fired, fired ? SignalKind.FUSION : null, 8.0, mu, sigma, level);
+                m, sPlus, 0.0, fired, fired ? SignalKind.FUSION : null, 8.0, mu, sigma, level, List.of());
+    }
+
+    private static PipelineObservation obsWithContributors(String asOf, double weightedChange,
+            List<PairContribution> contributors) {
+        ChangeMetrics m = new ChangeMetrics(weightedChange, 1.0, 0.1, 1, 1.0, List.of(2));
+        return new PipelineObservation(Instant.parse(asOf), "crypto", "daily",
+                m, 8.0, 0.0, true, SignalKind.FUSION, 8.0, 0.0, 1.0, 0.167, contributors);
     }
 }

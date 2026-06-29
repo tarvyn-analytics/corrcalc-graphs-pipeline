@@ -191,6 +191,44 @@ class NdjsonObserverTest {
                                            double sPlus, boolean fired) {
         ChangeMetrics m = new ChangeMetrics(weightedChange, density, 0.1, 1, largestFraction, List.of(2));
         return new PipelineObservation(Instant.parse("2021-02-12T00:00:00Z"), market, timescale,
-                m, sPlus, 0.0, fired, fired ? SignalKind.FUSION : null, 8.0, mu, sigma, level);
+                m, sPlus, 0.0, fired, fired ? SignalKind.FUSION : null, 8.0, mu, sigma, level, List.of());
+    }
+
+    private static PipelineObservation obsWithContributors(List<PairContribution> contributors) {
+        ChangeMetrics m = new ChangeMetrics(2.0, 1.0, 0.1, 1, 1.0, List.of(2));
+        return new PipelineObservation(Instant.parse("2021-02-12T00:00:00Z"), "crypto", "daily",
+                m, 8.0, 0.0, true, SignalKind.FUSION, 8.0, 0.0, 1.0, 0.167, contributors);
+    }
+
+    @Test
+    void obsRecord_SerializesContributors_AsLabelledPairArray() throws Exception {
+        JsonNode n = MAPPER.readTree(NdjsonObserver.obsRecord(obsWithContributors(List.of(
+                new PairContribution("ETH", "BNB", 0.42),
+                new PairContribution("BTC", "LTC", 0.30)))));
+        JsonNode arr = n.get("contributors");
+        assertEquals(2, arr.size());
+        assertEquals("ETH", arr.get(0).get("a").asText());
+        assertEquals("BNB", arr.get(0).get("b").asText());
+        assertEquals(0.42, arr.get(0).get("absDelta").asDouble(), 1e-12);
+        assertEquals("BTC", arr.get(1).get("a").asText());
+        assertEquals("LTC", arr.get(1).get("b").asText());
+    }
+
+    @Test
+    void obsRecord_NoContributors_IsEmptyArrayNotMissing() throws Exception {
+        JsonNode n = MAPPER.readTree(NdjsonObserver.obsRecord(obs(0.4, 0.5, 0.05, 0.05, 0.02, 0.5, 1.0, false)));
+        assertTrue(n.get("contributors").isArray(), n.toString());
+        assertEquals(0, n.get("contributors").size());
+    }
+
+    @Test
+    void digestRecord_BiggestMove_CarriesItsContributors() throws Exception {
+        RunDigest d = new RunDigest();
+        d.add(obsWithContributors(List.of(new PairContribution("ETH", "BNB", 0.42))));
+        JsonNode n = MAPPER.readTree(NdjsonObserver.digestRecord(d, new RunSummary(1, 1, 1, 1, 18)));
+        JsonNode arr = n.get("biggestMove").get("contributors");
+        assertEquals(1, arr.size());
+        assertEquals("ETH", arr.get(0).get("a").asText());
+        assertEquals(0.42, arr.get(0).get("absDelta").asDouble(), 1e-12);
     }
 }

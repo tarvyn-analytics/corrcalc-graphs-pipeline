@@ -32,6 +32,9 @@ import java.util.List;
  * @param calmSigma         the calm-window standard deviation of the weighted-change series (already
  *                          sigma-floored upstream); {@code <= 0} or NaN makes {@link #zScore()} NaN
  * @param levelGate         the absolute density level gate {@code L} (a percentile of calm density)
+ * @param contributors      the top-k asset pairs that moved most this transition (by {@code |Δr|},
+ *                          descending), the "who" behind the move; never {@code null} but possibly
+ *                          empty (a data gap, a degenerate window, or attribution disabled with k=0)
  */
 public record PipelineObservation(
         Instant asOf,
@@ -45,14 +48,15 @@ public record PipelineObservation(
         double decisionThreshold,
         double calmMu,
         double calmSigma,
-        double levelGate) {
+        double levelGate,
+        List<PairContribution> contributors) {
 
     /** Activation past this fraction of {@code h} is {@link Severity#WATCH}. */
     public static final double WATCH_FRACTION = 0.5;
     /** Activation past this fraction of {@code h} is {@link Severity#WARN}. */
     public static final double WARN_FRACTION = 0.8;
 
-    /** Validates the metric block and the decision threshold (the gauge denominator). */
+    /** Validates the metric block and the decision threshold, and defensively copies the contributors. */
     public PipelineObservation {
         if (metrics == null) {
             throw new IllegalArgumentException("metrics must not be null");
@@ -60,6 +64,7 @@ public record PipelineObservation(
         if (!(decisionThreshold > 0.0)) {
             throw new IllegalArgumentException("decisionThreshold must be > 0 [" + decisionThreshold + "]");
         }
+        contributors = contributors == null ? List.of() : List.copyOf(contributors);
     }
 
     /**

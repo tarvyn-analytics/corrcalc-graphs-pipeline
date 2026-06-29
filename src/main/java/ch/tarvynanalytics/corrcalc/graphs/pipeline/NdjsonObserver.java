@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.io.PrintStream;
+import java.util.List;
 
 /**
  * The structured machine-readable {@link PipelineObserver} — the {@code --style ndjson} counterpart to
@@ -161,6 +162,7 @@ public final class NdjsonObserver implements PipelineObserver {
         for (ReasonCode code : o.reasonCodes()) {
             reasons.add(code.name());
         }
+        putContributors(n, o.contributors());
         return n.toString();
     }
 
@@ -198,8 +200,20 @@ public final class NdjsonObserver implements PipelineObserver {
             ObjectNode bm = n.putObject("biggestMove");
             putNum(bm, "magnitude", d.biggestMove());
             bm.put("asOf", d.biggestMoveAt().toString());
+            putContributors(bm, d.biggestMoveContributors());
         }
         return n.toString();
+    }
+
+    /** Serializes the "who moved" attribution as a {@code contributors:[{a,b,absDelta}]} array. */
+    private static void putContributors(ObjectNode parent, List<PairContribution> contributors) {
+        ArrayNode arr = parent.putArray("contributors");
+        for (PairContribution c : contributors) {
+            ObjectNode cn = arr.addObject();
+            cn.put("a", c.a());
+            cn.put("b", c.b());
+            putNum(cn, "absDelta", c.absDelta());
+        }
     }
 
     /** Puts a finite double, or JSON {@code null} for {@link Double#NaN}/±∞ (no {@code NaN} token). */
