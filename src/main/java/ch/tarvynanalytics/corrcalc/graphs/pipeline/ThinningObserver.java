@@ -40,6 +40,11 @@ public final class ThinningObserver implements PipelineObserver {
     }
 
     @Override
+    public void onStart(RunContext context) {
+        delegate.onStart(context);
+    }
+
+    @Override
     public void onComplete(RunSummary summary) {
         delegate.onComplete(summary);
     }

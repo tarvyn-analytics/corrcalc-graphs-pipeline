@@ -55,6 +55,25 @@ class ReadableObserverTest {
     }
 
     @Test
+    void configBanner_ShowsConfigAndProvenance() {
+        String banner = ReadableObserver.configBanner(new RunContext(
+                "crypto", "daily", "replay", "leading-warmup", 14, 0.5, 1.5, 8.0, 99.0, "UPPER", 18, 60.0));
+        assertTrue(banner.contains("CONFIG"), banner);
+        assertTrue(banner.contains("mode=replay"), banner);
+        assertTrue(banner.contains("calibration=leading-warmup"), banner);
+        assertTrue(banner.contains("window=14"), banner);
+        assertTrue(banner.contains("fireArm=UPPER"), banner);
+    }
+
+    @Test
+    void onStart_LogsConfigBanner_AndRejectsNull() {
+        ReadableObserver observer = new ReadableObserver();
+        observer.onStart(new RunContext(
+                "crypto", "daily", "replay", "leading-warmup", 14, 0.5, 1.5, 8.0, 99.0, "UPPER", 18, 60.0));
+        assertThrows(IllegalArgumentException.class, () -> observer.onStart(null));
+    }
+
+    @Test
     void digestBlock_SummarizesTheRun() {
         RunDigest d = new RunDigest();
         d.add(obs(1.0, 1.0, 0.81, 0.0647, 0.0258, 0.167, 34.0, true));

@@ -2,6 +2,7 @@ package ch.tarvynanalytics.corrcalc.graphs.pipeline.replay;
 
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.ObservationPolicy;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObserver;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.RunContext;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.SignalSink;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.Bar;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.PriceBars;
@@ -17,6 +18,7 @@ import ch.tarvynanalytics.corrcalc.graphs.pipeline.engine.RunSummary;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.source.IterableMarketDataSource;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.source.MarketDataSource;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.source.MarketSnapshot;
+import ch.tarvynanalytics.graphs.algos.DetectorConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -80,6 +82,7 @@ public final class PacedReplay {
 
         PipelineEngine engine = buildEngine(symbols, cfg, opts, calmBars, sink, observer, policy);
         logStart(opts, returnBars, expectedPoints, cfg, calmBars, clock.speed());
+        observer.onStart(runContext(opts, cfg, calmBars, clock.speed()));
 
         MarketDataSource source = new IterableMarketDataSource(symbols, snapshots);
         ReturnBuilder builder = new ReturnBuilder(symbols, sessionPolicy);
@@ -111,6 +114,7 @@ public final class PacedReplay {
 
         PipelineEngine engine = buildEngine(panel.symbols(), cfg, opts, calmBars, sink, observer, policy);
         logStart(opts, returns.length, expectedPoints, cfg, calmBars, clock.speed());
+        observer.onStart(runContext(opts, cfg, calmBars, clock.speed()));
 
         List<Instant> timestamps = panel.timestamps();
         Instant prevTs = null;
@@ -129,6 +133,18 @@ public final class PacedReplay {
         logDone(summary);
         observer.onComplete(summary);
         return summary;
+    }
+
+    /**
+     * Builds the static run context echoed before the stream. {@code mode=replay} and
+     * {@code calibration=leading-warmup} record this run's provenance — replay calibrates on a pragmatic
+     * leading prefix, not the rigorous walk-forward calm block the regression uses.
+     */
+    private static RunContext runContext(ReplayOptions opts, TimescaleConfig cfg, int calmBars, double speed) {
+        DetectorConfig det = cfg.detector();
+        return new RunContext(opts.market(), opts.timescale(), "replay", "leading-warmup",
+                cfg.window(), cfg.edgeThreshold(), det.k(), det.h(), det.levelPctile(),
+                det.fireArm().name(), calmBars, speed);
     }
 
     private static PipelineEngine buildEngine(String[] symbols, TimescaleConfig cfg, ReplayOptions opts,

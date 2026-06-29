@@ -159,6 +159,7 @@ class PipelineCliTest {
 
         assertEquals(0, code, err.toString(StandardCharsets.UTF_8));
         String stdout = out.toString(StandardCharsets.UTF_8);
+        assertTrue(stdout.contains("{\"rec\":\"config\""), stdout);
         assertTrue(stdout.contains("{\"rec\":\"calib\""), stdout);
         assertTrue(stdout.contains("{\"rec\":\"obs\""), stdout);
         assertTrue(stdout.contains("{\"rec\":\"digest\""), stdout);
