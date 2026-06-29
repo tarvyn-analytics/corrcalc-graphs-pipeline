@@ -306,7 +306,8 @@ public final class PipelineEngine {
             detectionPoints++;
             SignalKind kind = sig.fired() ? SignalKind.FUSION : null;
             PipelineObservation obs = new PipelineObservation(asOf, market, timescale, sig.metrics(),
-                    sig.sPlus(), sig.sMinus(), sig.fired(), kind, cfg.detector().h());
+                    sig.sPlus(), sig.sMinus(), sig.fired(), kind, cfg.detector().h(),
+                    calibrationResult.mu(), calibrationResult.sigma(), calibrationResult.level());
             if (policy.emit(obs)) {
                 observer.onObservation(obs);
                 observationsEmitted++;

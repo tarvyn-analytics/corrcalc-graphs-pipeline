@@ -4,6 +4,7 @@ import ch.tarvynanalytics.corrcalc.graphs.pipeline.LoggingObserver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.LoggingSink;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.ObservationPolicy;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObserver;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.ReadableObserver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.SignalSink;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.ThinningObserver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.replay.PacedReplay;
@@ -88,6 +89,7 @@ public final class PipelineCli {
         Integer limit = null;
         int heartbeatEvery = 1;
         String observe = "all";
+        String style = "technical";
         boolean verbose = false;
 
         for (int i = 1; i < args.length; i++) {
@@ -107,6 +109,7 @@ public final class PipelineCli {
                 case "--limit" -> limit = parseInt(value(args, ++i, a), a);
                 case "--heartbeat-every" -> heartbeatEvery = parseInt(value(args, ++i, a), a);
                 case "--observe" -> observe = value(args, ++i, a);
+                case "--style" -> style = value(args, ++i, a);
                 case "--universe" -> universe = value(args, ++i, a);
                 case "--from" -> from = value(args, ++i, a);
                 case "--to" -> to = value(args, ++i, a);
@@ -143,10 +146,12 @@ public final class PipelineCli {
         ObservationPolicy policy = parseObserve(observe);
         // Fires go to the product sink (loud WARN banner); the full transition series goes to the
         // observer, gated by --observe and thinned by --heartbeat-every — both the consumer's choice.
+        // --style picks how each forwarded transition is rendered (terse vs annotated/readable).
         SignalSink sink = new LoggingSink();
+        PipelineObserver base = parseStyle(style);
         PipelineObserver observer = heartbeatEvery > 1
-                ? new ThinningObserver(new LoggingObserver(), heartbeatEvery)
-                : new LoggingObserver();
+                ? new ThinningObserver(base, heartbeatEvery)
+                : base;
         PacedReplay.run(Path.of(dataDir), opts, sink, observer, policy, ReplayClock.of(speed, maxStepMs));
         return 0;
     }
@@ -175,6 +180,19 @@ public final class PipelineCli {
             }
         }
         throw new UsageException("--observe expects all|fires|change>=<x>|activation>=<x>, got [" + spec + "]");
+    }
+
+    /**
+     * Parses the {@code --style} spec into the per-transition renderer: {@code technical} (the terse
+     * {@link LoggingObserver}) or {@code readable} (the annotated {@link ReadableObserver} with a
+     * legend, calibration banner, σ-magnitude, severity tiers and reason codes).
+     */
+    private static PipelineObserver parseStyle(String spec) {
+        return switch (spec) {
+            case "technical" -> new LoggingObserver();
+            case "readable" -> new ReadableObserver();
+            default -> throw new UsageException("--style expects technical|readable, got [" + spec + "]");
+        };
     }
 
     private static String value(String[] args, int i, String option) {
@@ -240,6 +258,8 @@ public final class PipelineCli {
                   --limit <N>                 stop after N detection points (default: unlimited)
                   --heartbeat-every <N>       forward one observation in every N (default: 1)
                   --observe <spec>            which transitions to log: all|fires|change>=<x>|activation>=<x> (default: all)
+                  --style technical|readable  terse metrics, or an annotated stream with a legend,
+                                              calibration banner, σ-magnitude, severity + reasons (default: technical)
                   --universe <path>           symbol-list CSV (default: <data-dir>/<event>_universe.csv)
                   --from <YYYY-MM-DD>          earliest UTC bar date to keep
                   --to <YYYY-MM-DD>           latest UTC bar date to keep
