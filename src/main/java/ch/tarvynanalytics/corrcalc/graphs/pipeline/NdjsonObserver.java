@@ -142,6 +142,7 @@ public final class NdjsonObserver implements PipelineObserver {
         n.put("market", o.market());
         n.put("timescale", o.timescale());
         n.put("severity", o.severity().name());
+        n.put("lifecycle", o.lifecycle().name());
         n.put("fired", o.fired());
         if (o.firedKind() == null) {
             n.putNull("firedKind");

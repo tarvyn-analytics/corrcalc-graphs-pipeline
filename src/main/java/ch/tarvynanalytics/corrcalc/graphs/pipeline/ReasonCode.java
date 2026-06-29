@@ -12,6 +12,8 @@ package ch.tarvynanalytics.corrcalc.graphs.pipeline;
  * which keeps a future structured (NDJSON) stream and the human log in lock-step.</p>
  */
 public enum ReasonCode {
+    /** No valid structural change this bar — a degenerate/gap window (weighted change is NaN). */
+    DATA_GAP("data gap — no valid change this bar"),
     /** An alert opened on the upper (fusion / structure-tightened) arm. */
     FIRE_FUSION("FUSION fired — structure tightened (exit / risk-off)"),
     /** An alert opened on the lower (de-fusion / structure-loosened) arm. */

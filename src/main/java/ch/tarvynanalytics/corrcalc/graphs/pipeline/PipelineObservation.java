@@ -111,6 +111,25 @@ public record PipelineObservation(
     }
 
     /**
+     * The detector's {@link DetectorState lifecycle state} at this transition: {@link DetectorState#FIRED}
+     * if it opened an alert, {@link DetectorState#DEBOUNCED} if the firing arm breached with the level
+     * gate open but no new alert opened (refractory — already fired this regime), else
+     * {@link DetectorState#ARMED} (watching; a breach with the gate shut stays ARMED and is explained by
+     * {@link ReasonCode#BLOCKED_BY_LEVEL_GATE}).
+     *
+     * @return the detector lifecycle state of this transition
+     */
+    public DetectorState lifecycle() {
+        if (fired) {
+            return DetectorState.FIRED;
+        }
+        if (cusumSPlus >= decisionThreshold && levelGateOpen()) {
+            return DetectorState.DEBOUNCED;
+        }
+        return DetectorState.ARMED;
+    }
+
+    /**
      * The human-facing {@link Severity} tier, derived from {@link #activation()} (or {@link #fired()}).
      *
      * @return the severity tier of this transition
@@ -139,6 +158,9 @@ public record PipelineObservation(
      */
     public List<ReasonCode> reasonCodes() {
         List<ReasonCode> codes = new ArrayList<>();
+        if (Double.isNaN(magnitude())) {
+            codes.add(ReasonCode.DATA_GAP);
+        }
         if (fired) {
             codes.add(firedKind == SignalKind.DEFUSION ? ReasonCode.FIRE_DEFUSION : ReasonCode.FIRE_FUSION);
         }
