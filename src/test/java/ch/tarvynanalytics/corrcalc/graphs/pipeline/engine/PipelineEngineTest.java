@@ -2,6 +2,7 @@ package ch.tarvynanalytics.corrcalc.graphs.pipeline.engine;
 
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.CollectingSink;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.ObservationPolicy;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.PairContribution;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObservation;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObserver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.SignalKind;
@@ -13,9 +14,11 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -100,6 +103,37 @@ class PipelineEngineTest {
 
         engine.onReturns(t.plusSeconds(60L * WINDOW), post.rows[WINDOW]);
         assertEquals(before + 1, engine.summary().detectionPoints(), "next bar yields the first post-gap transition");
+    }
+
+    @Test
+    void onReturns_PopulatesTopKContributors_LabelledFromTheRunSymbols() {
+        List<PipelineObservation> observed = new ArrayList<>();
+        PipelineEngine engine = builder(24).sink(new CollectingSink()).observer(observed::add)
+                .observationPolicy(ObservationPolicy.all()).build();
+
+        drive(engine, calmThenFused(48, 24, 4, 42L));
+
+        PipelineObservation withContrib = observed.stream()
+                .filter(o -> !o.contributors().isEmpty()).findFirst().orElseThrow();
+        assertTrue(withContrib.contributors().size() <= 3, "default top-k caps at 3");
+        Set<String> syms = Set.of("S0", "S1", "S2", "S3");
+        for (PairContribution c : withContrib.contributors()) {
+            assertTrue(syms.contains(c.a()) && syms.contains(c.b()), c.toString());
+            assertNotEquals(c.a(), c.b());
+        }
+    }
+
+    @Test
+    void contributorsTopK_Zero_DisablesAttribution() {
+        List<PipelineObservation> observed = new ArrayList<>();
+        PipelineEngine engine = builder(24).sink(new CollectingSink()).observer(observed::add)
+                .observationPolicy(ObservationPolicy.all()).contributorsTopK(0).build();
+
+        drive(engine, calmThenFused(48, 24, 4, 42L));
+
+        assertFalse(observed.isEmpty());
+        assertTrue(observed.stream().allMatch(o -> o.contributors().isEmpty()));
+        assertThrows(IllegalArgumentException.class, () -> builder(24).contributorsTopK(-1));
     }
 
     @Test

@@ -89,8 +89,12 @@
             <releases>
                 <enabled>true</enabled>
             </releases>
+            <!-- The sibling libs evolve between this pipeline's builds; re-check the snapshot
+                 every build so a cached ~/.m2 (CI cache, default daily policy) never resolves a
+                 stale jar (e.g. a just-merged upstream API the pipeline now consumes). -->
             <snapshots>
                 <enabled>true</enabled>
+                <updatePolicy>always</updatePolicy>
             </snapshots>
         </repository>
         <repository>
@@ -102,6 +106,7 @@
             </releases>
             <snapshots>
                 <enabled>true</enabled>
+                <updatePolicy>always</updatePolicy>
             </snapshots>
         </repository>
     </repositories>

@@ -2,6 +2,7 @@ package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 
 import java.time.Instant;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -28,6 +29,7 @@ final class RunDigest {
     private double maxAbsZ;
     private double biggestMove = Double.NaN;
     private Instant biggestMoveAt;
+    private List<PairContribution> biggestMoveContributors = List.of();
 
     /** Folds one received observation into the running figures. */
     void add(PipelineObservation o) {
@@ -52,6 +54,7 @@ final class RunDigest {
         if (Double.isFinite(m) && (biggestMoveAt == null || m > biggestMove)) {
             biggestMove = m;
             biggestMoveAt = o.asOf();
+            biggestMoveContributors = o.contributors();   // already an immutable copy off the record
         }
         double density = o.metrics().densityLevel();
         if (Double.isFinite(density) && density >= 0.999) {
@@ -97,5 +100,9 @@ final class RunDigest {
 
     Instant biggestMoveAt() {
         return biggestMoveAt;
+    }
+
+    List<PairContribution> biggestMoveContributors() {
+        return biggestMoveContributors;
     }
 }
