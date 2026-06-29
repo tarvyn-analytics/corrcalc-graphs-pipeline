@@ -29,6 +29,10 @@
              dependency-lean; this consumer module is the only place runtime deps are allowed. -->
         <slf4j.version>2.0.16</slf4j.version>
         <logback.version>1.5.12</logback.version>
+        <!-- Jackson: the structured NDJSON observation stream is the machine product / S5 contract,
+             so it is serialized with the standard JSON library rather than bespoke code. An edge
+             concern — the asset-agnostic libs never see it. -->
+        <jackson.version>2.18.2</jackson.version>
         <!-- SonarCloud analysis (same organization as the corrcalc/graphs repos). -->
         <sonar.organization>tarvyn-analytics</sonar.organization>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
@@ -128,6 +132,14 @@
             <artifactId>logback-classic</artifactId>
             <version>${logback.version}</version>
             <scope>runtime</scope>
+        </dependency>
+
+        <!-- JSON: serializes the NDJSON observation stream (NdjsonObserver). Standard library on the
+             consumer edge — keeps the wire format maintained rather than hand-rolled. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
         </dependency>
 
         <!-- Testing -->
