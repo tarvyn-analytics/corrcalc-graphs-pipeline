@@ -104,6 +104,37 @@ class NdjsonObserverTest {
     }
 
     @Test
+    void configRecord_SerializesStaticConfigAndProvenance() throws Exception {
+        JsonNode n = MAPPER.readTree(NdjsonObserver.configRecord(new RunContext(
+                "crypto", "daily", "replay", "leading-warmup", 14, 0.5, 1.5, 8.0, 99.0, "UPPER", 18, 60.0)));
+        assertEquals("config", n.get("rec").asText());
+        assertEquals("replay", n.get("mode").asText());
+        assertEquals("leading-warmup", n.get("calibration").asText());
+        assertEquals(14, n.get("window").asInt());
+        assertEquals(0.5, n.get("edgeThreshold").asDouble(), 1e-12);
+        assertEquals(1.5, n.get("cusumK").asDouble(), 1e-12);
+        assertEquals(8.0, n.get("decisionInterval").asDouble(), 1e-12);
+        assertEquals(99.0, n.get("levelPctile").asDouble(), 1e-12);
+        assertEquals("UPPER", n.get("fireArm").asText());
+        assertEquals(18, n.get("calmBars").asInt());
+    }
+
+    @Test
+    void onStart_EmitsConfigLineBeforeCalibAndRejectsNull() throws Exception {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        NdjsonObserver observer = new NdjsonObserver(new PrintStream(bos, true, StandardCharsets.UTF_8));
+        observer.onStart(new RunContext(
+                "crypto", "daily", "replay", "leading-warmup", 14, 0.5, 1.5, 8.0, 99.0, "UPPER", 18, 60.0));
+        observer.onObservation(obs(1.0, 1.0, 2.0, 0.0, 1.0, 0.167, 8.0, true));
+
+        String[] lines = bos.toString(StandardCharsets.UTF_8).split("\n");
+        assertEquals("config", MAPPER.readTree(lines[0]).get("rec").asText());
+        assertEquals("calib", MAPPER.readTree(lines[1]).get("rec").asText());
+        assertEquals("obs", MAPPER.readTree(lines[2]).get("rec").asText());
+        assertThrows(IllegalArgumentException.class, () -> observer.onStart(null));
+    }
+
+    @Test
     void digestRecord_FoldsTheRunIntoOneObject() throws Exception {
         RunDigest d = new RunDigest();
         d.add(obs(1.0, 1.0, 2.0, 0.0, 1.0, 0.167, 8.0, true));    // FIRE, z=2.0, saturated

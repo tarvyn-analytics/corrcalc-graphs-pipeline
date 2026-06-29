@@ -23,6 +23,18 @@ public interface PipelineObserver {
     void onObservation(PipelineObservation observation);
 
     /**
+     * Signals the start of the observation stream — called once before the first observation, carrying
+     * the static run context (config + provenance). The default is a no-op; observers that echo a config
+     * block override it. The single abstract method stays {@link #onObservation}, so this remains a
+     * functional interface.
+     *
+     * @param context the static run context
+     */
+    default void onStart(RunContext context) {
+        // default: observers that do not echo a config block ignore the run context
+    }
+
+    /**
      * Signals the end of the observation stream — called once after the final observation, carrying the
      * run outcome. The default is a no-op; stateful observers (e.g. an end-of-run digest) override it to
      * flush a summary. The single abstract method stays {@link #onObservation}, so this remains a

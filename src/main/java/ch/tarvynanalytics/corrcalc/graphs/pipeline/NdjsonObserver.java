@@ -48,6 +48,14 @@ public final class NdjsonObserver implements PipelineObserver {
     }
 
     @Override
+    public void onStart(RunContext context) {
+        if (context == null) {
+            throw new IllegalArgumentException("context must not be null");
+        }
+        emit(configRecord(context));
+    }
+
+    @Override
     public void onObservation(PipelineObservation observation) {
         if (observation == null) {
             throw new IllegalArgumentException("observation must not be null");
@@ -72,6 +80,33 @@ public final class NdjsonObserver implements PipelineObserver {
         out.print(line);
         out.print('\n');
         out.flush();
+    }
+
+    /**
+     * The leading {@code config} record — the static run context (config + provenance) known before the
+     * stream, the machine counterpart of {@link ReadableObserver#configBanner}. The <em>learned</em>
+     * calibration (μ, σ, L) is not here; it arrives in the {@code calib} record with the first observation.
+     *
+     * @param c the run context
+     * @return the config record as a single JSON object
+     */
+    public static String configRecord(RunContext c) {
+        ObjectNode n = MAPPER.createObjectNode();
+        n.put("rec", "config");
+        n.put("schema", SCHEMA);
+        n.put("market", c.market());
+        n.put("timescale", c.timescale());
+        n.put("mode", c.mode());
+        n.put("calibration", c.calibration());
+        n.put("window", c.window());
+        putNum(n, "edgeThreshold", c.edgeThreshold());
+        putNum(n, "cusumK", c.cusumK());
+        putNum(n, "decisionInterval", c.decisionInterval());
+        putNum(n, "levelPctile", c.levelPctile());
+        n.put("fireArm", c.fireArm());
+        n.put("calmBars", c.calmBars());
+        putNum(n, "speed", c.speed());
+        return n.toString();
     }
 
     /**

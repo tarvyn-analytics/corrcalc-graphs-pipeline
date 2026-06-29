@@ -31,6 +31,14 @@ public final class ReadableObserver implements PipelineObserver {
     private boolean headerShown;
 
     @Override
+    public void onStart(RunContext context) {
+        if (context == null) {
+            throw new IllegalArgumentException("context must not be null");
+        }
+        LOG.info("{}", configBanner(context));
+    }
+
+    @Override
     public void onObservation(PipelineObservation observation) {
         if (observation == null) {
             throw new IllegalArgumentException("observation must not be null");
@@ -67,6 +75,22 @@ public final class ReadableObserver implements PipelineObserver {
                 LEGEND  density=fraction of asset-pairs correlated (|r|>τ)   wΔ=structural move (mean|Δr|)
                         z=move size in calm-σ   act=closeness to firing max(S+,S-)/h   sev: CALM<WATCH<WARN<FIRE
                         [...]=why (an alarm needs density≥L AND act≥1.0)""";
+    }
+
+    /**
+     * The one-time config banner — the static run context (config + provenance) echoed before the
+     * stream. {@code calibration=leading-warmup} flags that replay's baseline is a pragmatic leading
+     * warm-up, not a rigorous walk-forward calm block.
+     *
+     * @param c the run context
+     * @return the config banner line
+     */
+    public static String configBanner(RunContext c) {
+        return String.format(Locale.ROOT,
+                "CONFIG  %s/%s  mode=%s  calibration=%s  window=%d  τ=%s  k=%s  h=%s  L=p%s  fireArm=%s  speed=%sx",
+                c.market(), c.timescale(), c.mode(), c.calibration(), c.window(),
+                fmt(c.edgeThreshold(), 2), fmt(c.cusumK(), 2), fmt(c.decisionInterval(), 2),
+                fmt(c.levelPctile(), 0), c.fireArm(), fmt(c.speed(), 0));
     }
 
     /**

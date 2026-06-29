@@ -40,6 +40,30 @@ class ThinningObserverTest {
     }
 
     @Test
+    void onStart_ForwardsToDelegate() {
+        List<RunContext> started = new ArrayList<>();
+        PipelineObserver delegate = new PipelineObserver() {
+            @Override
+            public void onObservation(PipelineObservation observation) {
+                // not exercised here
+            }
+
+            @Override
+            public void onStart(RunContext context) {
+                started.add(context);
+            }
+        };
+        ThinningObserver thin = new ThinningObserver(delegate, 3);
+        RunContext ctx = new RunContext("crypto", "daily", "replay", "leading-warmup",
+                14, 0.5, 1.5, 8.0, 99.0, "UPPER", 18, 60.0);
+
+        thin.onStart(ctx);
+
+        assertEquals(1, started.size());
+        assertEquals(ctx, started.get(0));
+    }
+
+    @Test
     void onComplete_ForwardsToDelegateRegardlessOfThinning() {
         List<RunSummary> completed = new ArrayList<>();
         PipelineObserver delegate = new PipelineObserver() {

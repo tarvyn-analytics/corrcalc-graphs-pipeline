@@ -24,7 +24,7 @@ public final class LoggingObserver implements PipelineObserver {
         if (observation == null) {
             throw new IllegalArgumentException("observation must not be null");
         }
-        LOG.info("{}  density={}  wD={}  S+={}  S-={}{}",
+        LOG.info("{}  density={}  wΔ={}  S+={}  S-={}{}",
                 observation.asOf(),
                 fmt(observation.metrics().densityLevel(), 3),
                 fmt(observation.metrics().weightedChange(), 4),
