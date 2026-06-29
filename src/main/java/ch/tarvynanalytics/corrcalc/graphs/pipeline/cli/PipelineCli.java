@@ -2,6 +2,7 @@ package ch.tarvynanalytics.corrcalc.graphs.pipeline.cli;
 
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.LoggingObserver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.LoggingSink;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.NdjsonObserver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.ObservationPolicy;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObserver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.ReadableObserver;
@@ -138,6 +139,11 @@ public final class PipelineCli {
         if (verbose) {
             System.setProperty("cgp.log.level", "DEBUG");
         }
+        if (style.equals("ndjson")) {
+            // NDJSON is the machine product on stdout; push diagnostic logging to stderr so the stream
+            // pipes clean. Set before any logger is touched (logback reads the target at init).
+            System.setProperty("cgp.log.target", "System.err");
+        }
 
         ReplayOptions opts = new ReplayOptions(event, market, timescale, speed, maxStepMs, calmBars,
                 limit, heartbeatEvery, universe == null ? null : Path.of(universe),
@@ -146,9 +152,9 @@ public final class PipelineCli {
         ObservationPolicy policy = parseObserve(observe);
         // Fires go to the product sink (loud WARN banner); the full transition series goes to the
         // observer, gated by --observe and thinned by --heartbeat-every — both the consumer's choice.
-        // --style picks how each forwarded transition is rendered (terse vs annotated/readable).
+        // --style picks how each forwarded transition is rendered (terse / annotated / NDJSON).
         SignalSink sink = new LoggingSink();
-        PipelineObserver base = parseStyle(style);
+        PipelineObserver base = parseStyle(style, out);
         PipelineObserver observer = heartbeatEvery > 1
                 ? new ThinningObserver(base, heartbeatEvery)
                 : base;
@@ -184,14 +190,16 @@ public final class PipelineCli {
 
     /**
      * Parses the {@code --style} spec into the per-transition renderer: {@code technical} (the terse
-     * {@link LoggingObserver}) or {@code readable} (the annotated {@link ReadableObserver} with a
-     * legend, calibration banner, σ-magnitude, severity tiers and reason codes).
+     * {@link LoggingObserver}), {@code readable} (the annotated {@link ReadableObserver} with a legend,
+     * calibration banner, σ-magnitude, severity tiers and reason codes), or {@code ndjson} (the
+     * structured {@link NdjsonObserver} machine stream written to {@code out}/stdout).
      */
-    private static PipelineObserver parseStyle(String spec) {
+    private static PipelineObserver parseStyle(String spec, PrintStream out) {
         return switch (spec) {
             case "technical" -> new LoggingObserver();
             case "readable" -> new ReadableObserver();
-            default -> throw new UsageException("--style expects technical|readable, got [" + spec + "]");
+            case "ndjson" -> new NdjsonObserver(out);
+            default -> throw new UsageException("--style expects technical|readable|ndjson, got [" + spec + "]");
         };
     }
 
@@ -258,8 +266,11 @@ public final class PipelineCli {
                   --limit <N>                 stop after N detection points (default: unlimited)
                   --heartbeat-every <N>       forward one observation in every N (default: 1)
                   --observe <spec>            which transitions to log: all|fires|change>=<x>|activation>=<x> (default: all)
-                  --style technical|readable  terse metrics, or an annotated stream with a legend,
-                                              calibration banner, σ-magnitude, severity + reasons (default: technical)
+                  --style technical|readable|ndjson
+                                              terse metrics; an annotated stream with a legend,
+                                              calibration banner, σ-magnitude, severity + reasons; or a
+                                              machine-readable NDJSON stream on stdout — diagnostics go
+                                              to stderr so it pipes clean (default: technical)
                   --universe <path>           symbol-list CSV (default: <data-dir>/<event>_universe.csv)
                   --from <YYYY-MM-DD>          earliest UTC bar date to keep
                   --to <YYYY-MM-DD>           latest UTC bar date to keep

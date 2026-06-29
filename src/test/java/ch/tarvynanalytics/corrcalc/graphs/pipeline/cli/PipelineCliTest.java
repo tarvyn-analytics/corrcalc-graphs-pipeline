@@ -42,6 +42,7 @@ class PipelineCliTest {
     @AfterEach
     void detachAppender() {
         replayLogger.detachAppender(appender);
+        System.clearProperty("cgp.log.target");
     }
 
     private int run(String... args) {
@@ -109,6 +110,12 @@ class PipelineCliTest {
     }
 
     @Test
+    void run_BadStyle_Exit2() {
+        assertEquals(2, run("replay", "dir", "--event", "e", "--market", "crypto", "--style", "fancy"));
+        assertTrue(err.toString(StandardCharsets.UTF_8).contains("--style"));
+    }
+
+    @Test
     void run_UnsupportedMarket_Exit2() {
         assertEquals(2, run("replay", "dir", "--event", "e", "--market", "forex", "--max-step-ms", "0"));
         assertTrue(err.toString(StandardCharsets.UTF_8).contains("unsupported market"));
@@ -136,6 +143,24 @@ class PipelineCliTest {
 
         assertEquals(0, code, err.toString(StandardCharsets.UTF_8));
         assertFalse(appender.list.isEmpty(), "the replay should have logged at least a start/summary line");
+    }
+
+    @Test
+    void run_NdjsonStyle_WritesStructuredStreamToStdout(@TempDir Path dir) throws IOException {
+        String event = "demo";
+        List<String> symbols = List.of("AAA", "BBB", "CCC");
+        writeUniverse(dir, event, symbols);
+        for (int s = 0; s < symbols.size(); s++) {
+            writeDailyBars(dir, symbols.get(s), event, 24, 100L + s);
+        }
+
+        int code = run("replay", dir.toString(), "--event", event, "--market", "crypto",
+                "--timescale", "daily", "--speed", "100000", "--max-step-ms", "0", "--style", "ndjson");
+
+        assertEquals(0, code, err.toString(StandardCharsets.UTF_8));
+        String stdout = out.toString(StandardCharsets.UTF_8);
+        assertTrue(stdout.contains("{\"rec\":\"calib\""), stdout);
+        assertTrue(stdout.contains("{\"rec\":\"obs\""), stdout);
     }
 
     private static void writeUniverse(Path dir, String event, List<String> symbols) throws IOException {
