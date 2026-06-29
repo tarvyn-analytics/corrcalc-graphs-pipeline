@@ -161,6 +161,7 @@ class PipelineCliTest {
         String stdout = out.toString(StandardCharsets.UTF_8);
         assertTrue(stdout.contains("{\"rec\":\"calib\""), stdout);
         assertTrue(stdout.contains("{\"rec\":\"obs\""), stdout);
+        assertTrue(stdout.contains("{\"rec\":\"digest\""), stdout);
     }
 
     private static void writeUniverse(Path dir, String event, List<String> symbols) throws IOException {

@@ -1,5 +1,6 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.engine.RunSummary;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,6 +27,7 @@ public final class ReadableObserver implements PipelineObserver {
     private static final Logger LOG = LoggerFactory.getLogger("observation");
     private static final String SEP = " · ";
 
+    private final RunDigest digest = new RunDigest();
     private boolean headerShown;
 
     @Override
@@ -38,12 +40,21 @@ public final class ReadableObserver implements PipelineObserver {
             LOG.info("{}", calibrationBanner(observation));
             headerShown = true;
         }
+        digest.add(observation);
         String line = renderLine(observation);
         if (observation.severity() == Severity.FIRE) {
             LOG.warn("{}", line);
         } else {
             LOG.info("{}", line);
         }
+    }
+
+    @Override
+    public void onComplete(RunSummary summary) {
+        if (summary == null) {
+            throw new IllegalArgumentException("summary must not be null");
+        }
+        LOG.info("{}", digestBlock(digest, summary));
     }
 
     /**
@@ -90,6 +101,31 @@ public final class ReadableObserver implements PipelineObserver {
                 fmt(o.cusumSPlus(), 2),
                 fmt(o.cusumSMinus(), 2),
                 why.isEmpty() ? "normal" : why);
+    }
+
+    /**
+     * The end-of-run digest block — the run folded into one human line (counts by severity, peak
+     * activation/σ-move, the biggest move, fires/published, fused-bar count).
+     *
+     * @param d the accumulated figures
+     * @param s the run outcome
+     * @return the digest summary line
+     */
+    public static String digestBlock(RunDigest d, RunSummary s) {
+        String biggest = d.biggestMoveAt() == null
+                ? "none"
+                : fmt(d.biggestMove(), 4) + " @ " + d.biggestMoveAt();
+        return String.format(Locale.ROOT,
+                "DIGEST  %s/%s  %d obs (%d calm)  sev[CALM=%d WATCH=%d WARN=%d FIRE=%d]  "
+                        + "fires=%d published=%d  peak act=%s  peak z=%sσ  biggest=%s  fused-bars=%d",
+                nz(d.market()), nz(d.timescale()), d.observed(), s.calmBars(),
+                d.count(Severity.CALM), d.count(Severity.WATCH), d.count(Severity.WARN), d.count(Severity.FIRE),
+                s.fires(), s.published(),
+                fmt(d.maxActivation(), 2), fmt(d.maxAbsZ(), 1), biggest, d.timeInFused());
+    }
+
+    private static String nz(String s) {
+        return s == null ? "?" : s;
     }
 
     private static String fmt(double v, int decimals) {

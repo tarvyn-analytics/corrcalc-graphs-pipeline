@@ -1,5 +1,6 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.engine.RunSummary;
 import ch.tarvynanalytics.graphs.algos.model.ChangeMetrics;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -100,6 +101,40 @@ class NdjsonObserverTest {
         assertEquals("obs", MAPPER.readTree(lines[1]).get("rec").asText());
         assertEquals("obs", MAPPER.readTree(lines[2]).get("rec").asText());
         assertThrows(IllegalArgumentException.class, () -> observer.onObservation(null));
+    }
+
+    @Test
+    void digestRecord_FoldsTheRunIntoOneObject() throws Exception {
+        RunDigest d = new RunDigest();
+        d.add(obs(1.0, 1.0, 2.0, 0.0, 1.0, 0.167, 8.0, true));    // FIRE, z=2.0, saturated
+        d.add(obs(0.4, 0.5, 0.05, 0.0, 1.0, 0.5, 1.0, false));    // CALM
+        JsonNode n = MAPPER.readTree(NdjsonObserver.digestRecord(d, new RunSummary(2, 1, 1, 2, 18)));
+
+        assertEquals("digest", n.get("rec").asText());
+        assertEquals("crypto", n.get("market").asText());
+        assertEquals(2, n.get("detectionPoints").asInt());
+        assertEquals(1, n.get("fires").asInt());
+        assertEquals(18, n.get("calmBars").asInt());
+        assertEquals(2, n.get("observed").asInt());
+        assertEquals(1, n.get("bySeverity").get("FIRE").asInt());
+        assertEquals(1, n.get("bySeverity").get("CALM").asInt());
+        assertEquals(2.0, n.get("maxAbsZ").asDouble(), 1e-12);
+        assertEquals(1.0, n.get("maxActivation").asDouble(), 1e-12);
+        assertEquals(1, n.get("timeInFused").asInt());
+        assertEquals(2.0, n.get("biggestMove").get("magnitude").asDouble(), 1e-12);
+        assertEquals("2021-02-12T00:00:00Z", n.get("biggestMove").get("asOf").asText());
+    }
+
+    @Test
+    void onComplete_EmitsDigestLineAndRejectsNull() throws Exception {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        NdjsonObserver observer = new NdjsonObserver(new PrintStream(bos, true, StandardCharsets.UTF_8));
+        observer.onObservation(obs(1.0, 1.0, 2.0, 0.0, 1.0, 0.167, 8.0, true));
+        observer.onComplete(new RunSummary(1, 1, 1, 1, 18));
+
+        String[] lines = bos.toString(StandardCharsets.UTF_8).split("\n");
+        assertEquals("digest", MAPPER.readTree(lines[lines.length - 1]).get("rec").asText());
+        assertThrows(IllegalArgumentException.class, () -> observer.onComplete(null));
     }
 
     @Test

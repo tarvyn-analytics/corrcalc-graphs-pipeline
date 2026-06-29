@@ -1,5 +1,7 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.engine.RunSummary;
+
 /**
  * The consumer end of the <em>observation seam</em>: receives every {@link PipelineObservation} the
  * configured {@link ObservationPolicy} lets through. This is the counterpart to {@link SignalSink} for
@@ -19,6 +21,18 @@ public interface PipelineObserver {
      * @param observation the per-transition observation
      */
     void onObservation(PipelineObservation observation);
+
+    /**
+     * Signals the end of the observation stream — called once after the final observation, carrying the
+     * run outcome. The default is a no-op; stateful observers (e.g. an end-of-run digest) override it to
+     * flush a summary. The single abstract method stays {@link #onObservation}, so this remains a
+     * functional interface.
+     *
+     * @param summary the run outcome
+     */
+    default void onComplete(RunSummary summary) {
+        // default: observers that do not summarize ignore the run outcome
+    }
 
     /** A sink that drops every observation — the default when a consumer wants only the fire-stream. */
     static PipelineObserver noOp() {

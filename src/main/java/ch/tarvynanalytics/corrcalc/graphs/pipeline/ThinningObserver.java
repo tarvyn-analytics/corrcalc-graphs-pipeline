@@ -1,5 +1,7 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.engine.RunSummary;
+
 /**
  * A {@link PipelineObserver} decorator that forwards only every {@code n}-th observation to a delegate —
  * a consumer-side knob for thinning a noisy full-series stream (the CLI's {@code --heartbeat-every}).
@@ -35,5 +37,10 @@ public final class ThinningObserver implements PipelineObserver {
         if (seen % everyN == 0) {
             delegate.onObservation(observation);
         }
+    }
+
+    @Override
+    public void onComplete(RunSummary summary) {
+        delegate.onComplete(summary);
     }
 }

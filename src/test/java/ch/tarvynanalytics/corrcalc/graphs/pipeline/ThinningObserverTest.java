@@ -1,5 +1,6 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.engine.RunSummary;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -36,5 +37,28 @@ class ThinningObserverTest {
     void constructor_RejectsNullDelegateAndNonPositiveN() {
         assertThrows(IllegalArgumentException.class, () -> new ThinningObserver(null, 1));
         assertThrows(IllegalArgumentException.class, () -> new ThinningObserver(o -> { }, 0));
+    }
+
+    @Test
+    void onComplete_ForwardsToDelegateRegardlessOfThinning() {
+        List<RunSummary> completed = new ArrayList<>();
+        PipelineObserver delegate = new PipelineObserver() {
+            @Override
+            public void onObservation(PipelineObservation observation) {
+                // not exercised here
+            }
+
+            @Override
+            public void onComplete(RunSummary summary) {
+                completed.add(summary);
+            }
+        };
+        ThinningObserver thin = new ThinningObserver(delegate, 3);
+        RunSummary summary = new RunSummary(5, 1, 1, 2, 18);
+
+        thin.onComplete(summary);
+
+        assertEquals(1, completed.size());
+        assertEquals(summary, completed.get(0));
     }
 }
