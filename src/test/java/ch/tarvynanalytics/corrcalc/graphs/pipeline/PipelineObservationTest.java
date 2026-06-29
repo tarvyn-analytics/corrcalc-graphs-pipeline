@@ -101,6 +101,24 @@ class PipelineObservationTest {
     }
 
     @Test
+    void lifecycle_TracksFiredDebouncedAndArmed() {
+        assertEquals(DetectorState.FIRED,
+                obs(1.0, 1.0, 0.81, 0.05, 0.02, 0.167, 34.0, 0.0, true).lifecycle());          // fired
+        assertEquals(DetectorState.DEBOUNCED,
+                obs(1.0, 1.0, 0.001, 0.0013, 0.0014, 1.0, 98.0, 0.0, false).lifecycle());       // breached, gate open, refractory
+        assertEquals(DetectorState.ARMED,
+                obs(0.7, 0.5, 0.05, 0.05, 0.02, 0.5, 1.0, 0.0, false).lifecycle());             // watching, not breached
+        assertEquals(DetectorState.ARMED,
+                obs(0.936, 0.9, 0.0006, 0.0013, 0.0014, 1.0, 206.0, 0.0, false).lifecycle());   // breached but gate shut -> still armed
+    }
+
+    @Test
+    void reasonCodes_NaNGap_FlagsDataGap() {
+        assertTrue(obs(0.7, 0.5, Double.NaN, 0.05, 0.02, 0.5, 1.0, 0.0, false)
+                .reasonCodes().contains(ReasonCode.DATA_GAP));
+    }
+
+    @Test
     void reasonCodes_DefusionFire_IsFlaggedDistinctly() {
         PipelineObservation defusion = new PipelineObservation(Instant.EPOCH, "crypto", "daily",
                 metrics(0.0001), 0.0, 30.0, true, SignalKind.DEFUSION, 8.0, 0.05, 0.02, 0.5);

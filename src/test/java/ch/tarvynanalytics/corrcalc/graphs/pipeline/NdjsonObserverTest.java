@@ -44,6 +44,7 @@ class NdjsonObserverTest {
         assertEquals("obs", n.get("rec").asText());
         assertEquals("2021-02-12T00:00:00Z", n.get("asOf").asText());
         assertEquals("FIRE", n.get("severity").asText());
+        assertEquals("FIRED", n.get("lifecycle").asText());
         assertTrue(n.get("fired").asBoolean());
         assertEquals("FUSION", n.get("firedKind").asText());
         assertEquals(1.0, n.get("density").asDouble(), 1e-12);
@@ -71,6 +72,7 @@ class NdjsonObserverTest {
                 NdjsonObserver.obsRecord(obs(0.5, 0.5, Double.NaN, 0.0, 1.0, 0.5, 1.0, false)));
         assertTrue(gap.get("magnitude").isNull(), gap.toString());
         assertTrue(gap.get("z").isNull(), gap.toString());
+        assertTrue(reasons(gap).contains("DATA_GAP"), gap.toString());
         // sigma <= 0 (degenerate calibration) -> z null even with a finite magnitude
         JsonNode degenerate = MAPPER.readTree(
                 NdjsonObserver.obsRecord(obs(0.5, 0.5, 0.1, 0.0, 0.0, 0.5, 1.0, false)));
