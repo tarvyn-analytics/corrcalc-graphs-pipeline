@@ -95,7 +95,7 @@ class ReadableObserverTest {
     @Test
     void renderLine_NonCalmBar_ShowsWhoMoved() {
         PipelineObservation fire = new PipelineObservation(Instant.parse("2021-02-12T00:00:00Z"), "crypto", "daily",
-                new ChangeMetrics(0.81, 1.0, 0.1, 1, 1.0, List.of(2)), 34.0, 0.0, true, SignalKind.FUSION,
+                new ChangeMetrics(0.81, 1.0, 0.1, 1, 1.0, List.of(2)), 34.0, 0.0, 0.9, true, SignalKind.FUSION,
                 8.0, 0.0647, 0.0258, 0.167, List.of(new PairContribution("ETH", "BNB", 0.42)));
         String line = ReadableObserver.renderLine(fire);
         assertTrue(line.contains("who=ETH–BNB"), line);
@@ -104,7 +104,7 @@ class ReadableObserverTest {
     @Test
     void renderLine_CalmBar_OmitsWho() {
         PipelineObservation calm = new PipelineObservation(Instant.parse("2021-02-12T00:00:00Z"), "crypto", "daily",
-                new ChangeMetrics(0.05, 0.5, 0.1, 1, 0.5, List.of(2)), 1.0, 0.0, false, null,
+                new ChangeMetrics(0.05, 0.5, 0.1, 1, 0.5, List.of(2)), 1.0, 0.0, 0.9, false, null,
                 8.0, 0.05, 0.02, 0.5, List.of(new PairContribution("ETH", "BNB", 0.01)));
         String line = ReadableObserver.renderLine(calm);
         assertTrue(line.contains("CALM"), line);
@@ -115,7 +115,7 @@ class ReadableObserverTest {
     void digestBlock_ShowsBiggestMoveContributors() {
         RunDigest d = new RunDigest();
         d.add(new PipelineObservation(Instant.parse("2021-02-12T00:00:00Z"), "crypto", "daily",
-                new ChangeMetrics(0.81, 1.0, 0.1, 1, 1.0, List.of(2)), 34.0, 0.0, true, SignalKind.FUSION,
+                new ChangeMetrics(0.81, 1.0, 0.1, 1, 1.0, List.of(2)), 34.0, 0.0, 0.9, true, SignalKind.FUSION,
                 8.0, 0.0647, 0.0258, 0.167, List.of(new PairContribution("ETH", "BNB", 0.42))));
         String block = ReadableObserver.digestBlock(d, new RunSummary(5, 1, 1, 5, 18));
         assertTrue(block.contains("(ETH–BNB)"), block);
@@ -125,6 +125,26 @@ class ReadableObserverTest {
                                            double mu, double sigma, double level, double sPlus, boolean fired) {
         ChangeMetrics m = new ChangeMetrics(weightedChange, density, 0.1, 1, largestFraction, List.of(2));
         return new PipelineObservation(Instant.parse("2021-02-12T00:00:00Z"), "crypto", "daily",
-                m, sPlus, 0.0, fired, fired ? SignalKind.FUSION : null, 8.0, mu, sigma, level, List.of());
+                m, sPlus, 0.0, 0.9, fired, fired ? SignalKind.FUSION : null, 8.0, mu, sigma, level, List.of());
+    }
+
+    @Test
+    void renderLine_ShowsRecoveryGauge() {
+        String line = ReadableObserver.renderLine(obs(0.4, 0.5, 0.05, 0.05, 0.02, 0.5, 1.0, false));
+        assertTrue(line.contains("rec=0.90"), line);   // the helper sets gauge 0.9
+    }
+
+    @Test
+    void digestBlock_ShowsPeakRecoveryAndAllClear() {
+        RunDigest d = new RunDigest();
+        d.add(new PipelineObservation(Instant.parse("2021-05-18T00:00:00Z"), "crypto", "intraday",
+                new ChangeMetrics(2.0, 1.0, 0.1, 1, 1.0, List.of(2)),
+                10.0, 0.0, 0.0, true, SignalKind.FUSION, 8.0, 0.05, 0.02, 0.5, List.of()));
+        d.add(new PipelineObservation(Instant.parse("2021-05-20T00:00:00Z"), "crypto", "intraday",
+                new ChangeMetrics(0.0001, 0.05, 0.1, 1, 0.2, List.of(2)),
+                0.0, 0.0, 0.95, true, SignalKind.DEFUSION, 8.0, 0.05, 0.02, 0.5, List.of()));
+        String block = ReadableObserver.digestBlock(d, new RunSummary(2, 2, 2, 2, 18));
+        assertTrue(block.contains("peak recovery=0.95"), block);
+        assertTrue(block.contains("all-clear=2021-05-20T00:00:00Z (+48h after fusion)"), block);
     }
 }

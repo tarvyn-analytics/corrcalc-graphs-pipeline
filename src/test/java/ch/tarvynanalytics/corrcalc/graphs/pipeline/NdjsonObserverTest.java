@@ -27,7 +27,7 @@ class NdjsonObserverTest {
         JsonNode n = MAPPER.readTree(
                 NdjsonObserver.calibRecord(obs(1.0, 1.0, 0.81, 0.0647, 0.0258, 0.167, 34.0, true)));
         assertEquals("calib", n.get("rec").asText());
-        assertEquals(1, n.get("schema").asInt());
+        assertEquals(2, n.get("schema").asInt());
         assertEquals("crypto", n.get("market").asText());
         assertEquals("daily", n.get("timescale").asText());
         assertEquals(0.0647, n.get("mu").asDouble(), 1e-12);
@@ -54,6 +54,33 @@ class NdjsonObserverTest {
         assertTrue(n.get("levelGateOpen").asBoolean());
         assertEquals(List.of("FIRE_FUSION", "MAG_GE_2SIGMA", "LEVEL_GATE_OPEN", "DENSITY_SATURATED",
                 "COMPONENTS_COLLAPSED", "CUSUM_BREACH"), reasons(n));
+    }
+
+    @Test
+    void obsRecord_CarriesRecoveryGauge_AndDigestTracksPeakAndAllClear() throws Exception {
+        JsonNode obs = MAPPER.readTree(
+                NdjsonObserver.obsRecord(obs(0.4, 0.5, 0.05, 0.05, 0.02, 0.5, 1.0, false)));
+        assertEquals(0.5, obs.get("recoveryGauge").asDouble(), 1e-12);   // the helper sets gauge 0.5
+
+        RunDigest d = new RunDigest();
+        d.add(fusionAt("2021-05-18T00:00:00Z"));      // first fusion arms the latch
+        d.add(allClearAt("2021-05-20T00:00:00Z"));    // de-fusion 48h later
+        JsonNode n = MAPPER.readTree(NdjsonObserver.digestRecord(d, new RunSummary(2, 2, 2, 2, 18)));
+        assertEquals(0.95, n.get("maxRecoveryGauge").asDouble(), 1e-12);
+        assertEquals("2021-05-20T00:00:00Z", n.get("firstAllClearAt").asText());
+        assertEquals(48.0, n.get("timeToAllClearHours").asDouble(), 1e-12);
+    }
+
+    private static PipelineObservation fusionAt(String at) {
+        return new PipelineObservation(Instant.parse(at), "crypto", "intraday",
+                new ChangeMetrics(2.0, 1.0, 0.1, 1, 1.0, List.of(2)),
+                10.0, 0.0, 0.0, true, SignalKind.FUSION, 8.0, 0.05, 0.02, 0.5, List.of());
+    }
+
+    private static PipelineObservation allClearAt(String at) {
+        return new PipelineObservation(Instant.parse(at), "crypto", "intraday",
+                new ChangeMetrics(0.0001, 0.05, 0.1, 1, 0.2, List.of(2)),
+                0.0, 0.0, 0.95, true, SignalKind.DEFUSION, 8.0, 0.05, 0.02, 0.5, List.of());
     }
 
     @Test
@@ -191,13 +218,13 @@ class NdjsonObserverTest {
                                            double sPlus, boolean fired) {
         ChangeMetrics m = new ChangeMetrics(weightedChange, density, 0.1, 1, largestFraction, List.of(2));
         return new PipelineObservation(Instant.parse("2021-02-12T00:00:00Z"), market, timescale,
-                m, sPlus, 0.0, fired, fired ? SignalKind.FUSION : null, 8.0, mu, sigma, level, List.of());
+                m, sPlus, 0.0, 0.5, fired, fired ? SignalKind.FUSION : null, 8.0, mu, sigma, level, List.of());
     }
 
     private static PipelineObservation obsWithContributors(List<PairContribution> contributors) {
         ChangeMetrics m = new ChangeMetrics(2.0, 1.0, 0.1, 1, 1.0, List.of(2));
         return new PipelineObservation(Instant.parse("2021-02-12T00:00:00Z"), "crypto", "daily",
-                m, 8.0, 0.0, true, SignalKind.FUSION, 8.0, 0.0, 1.0, 0.167, contributors);
+                m, 8.0, 0.0, 0.5, true, SignalKind.FUSION, 8.0, 0.0, 1.0, 0.167, contributors);
     }
 
     @Test

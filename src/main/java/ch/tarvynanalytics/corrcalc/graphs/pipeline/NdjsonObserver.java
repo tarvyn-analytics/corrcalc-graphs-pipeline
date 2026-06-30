@@ -30,7 +30,7 @@ import java.util.List;
 public final class NdjsonObserver implements PipelineObserver {
 
     /** The record-schema version; bump on any incompatible change to the emitted fields. */
-    public static final int SCHEMA = 1;
+    public static final int SCHEMA = 2;
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -156,6 +156,7 @@ public final class NdjsonObserver implements PipelineObserver {
         putNum(n, "activation", o.activation());
         putNum(n, "sPlus", o.cusumSPlus());
         putNum(n, "sMinus", o.cusumSMinus());
+        putNum(n, "recoveryGauge", o.recoveryGauge());
         putNum(n, "largestComponent", o.metrics().largestComponentFraction());
         n.put("levelGateOpen", o.levelGateOpen());
         ArrayNode reasons = n.putArray("reasons");
@@ -194,6 +195,18 @@ public final class NdjsonObserver implements PipelineObserver {
         putNum(n, "maxActivation", d.maxActivation());
         putNum(n, "maxAbsZ", d.maxAbsZ());
         n.put("timeInFused", d.timeInFused());
+        putNum(n, "maxRecoveryGauge", d.maxRecoveryGauge());
+        if (d.firstAllClearAt() == null) {
+            n.putNull("firstAllClearAt");
+        } else {
+            n.put("firstAllClearAt", d.firstAllClearAt().toString());
+        }
+        var timeToAllClear = d.timeToAllClear();
+        if (timeToAllClear == null) {
+            n.putNull("timeToAllClearHours");
+        } else {
+            n.put("timeToAllClearHours", timeToAllClear.toMinutes() / 60.0);
+        }
         if (d.biggestMoveAt() == null) {
             n.putNull("biggestMove");
         } else {

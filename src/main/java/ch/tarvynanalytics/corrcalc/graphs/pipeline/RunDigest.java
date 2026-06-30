@@ -1,5 +1,6 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.EnumMap;
 import java.util.List;
@@ -27,6 +28,9 @@ final class RunDigest {
     private long timeInFused;
     private double maxActivation;
     private double maxAbsZ;
+    private double maxRecoveryGauge;
+    private Instant firstFusionAt;
+    private Instant firstAllClearAt;
     private double biggestMove = Double.NaN;
     private Instant biggestMoveAt;
     private List<PairContribution> biggestMoveContributors = List.of();
@@ -41,6 +45,16 @@ final class RunDigest {
         bySeverity.merge(o.severity(), 1L, Long::sum);
         if (o.fired()) {
             fired++;
+        }
+        if (o.firedKind() == SignalKind.FUSION && firstFusionAt == null) {
+            firstFusionAt = o.asOf();
+        }
+        if (o.firedKind() == SignalKind.DEFUSION && firstAllClearAt == null) {
+            firstAllClearAt = o.asOf();
+        }
+        double gauge = o.recoveryGauge();
+        if (Double.isFinite(gauge) && gauge > maxRecoveryGauge) {
+            maxRecoveryGauge = gauge;
         }
         double a = o.activation();
         if (Double.isFinite(a) && a > maxActivation) {
@@ -92,6 +106,27 @@ final class RunDigest {
 
     double maxAbsZ() {
         return maxAbsZ;
+    }
+
+    /** The peak recovery gauge seen this run (how far the structure healed back into the calm band), {@code [0,1]}. */
+    double maxRecoveryGauge() {
+        return maxRecoveryGauge;
+    }
+
+    /** The timestamp of the first de-fusion all-clear this run, or {@code null} if none fired. */
+    Instant firstAllClearAt() {
+        return firstAllClearAt;
+    }
+
+    /**
+     * The time from the first fusion alarm to the first de-fusion all-clear, or {@code null} when either
+     * did not occur — the run's headline "how long until the structure recovered".
+     */
+    Duration timeToAllClear() {
+        if (firstFusionAt == null || firstAllClearAt == null || firstAllClearAt.isBefore(firstFusionAt)) {
+            return null;
+        }
+        return Duration.between(firstFusionAt, firstAllClearAt);
     }
 
     double biggestMove() {

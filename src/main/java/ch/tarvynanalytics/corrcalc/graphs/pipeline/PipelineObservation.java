@@ -24,7 +24,12 @@ import java.util.List;
  * @param timescale        which timescale stream produced it ({@code "daily"} / {@code "intraday"})
  * @param metrics          the S3 change metrics for this transition (weighted change, density, etc.)
  * @param cusumSPlus       the upper-arm (fusion) CUSUM accumulator after this transition ({@code >= 0})
- * @param cusumSMinus      the lower-arm (de-fusion) CUSUM accumulator after this transition ({@code >= 0})
+ * @param cusumSMinus      the lower-arm CUSUM accumulator on the change metric after this transition
+ *                         ({@code >= 0}; informational — not the re-entry signal)
+ * @param recoveryGauge    the de-fusion recovery gauge — the trailing fraction of the gauge window the
+ *                         density has spent back in the calm band — at this transition; in {@code [0, 1]},
+ *                         running {@code 0 → 1} as structure heals after a fusion, or {@link Double#NaN}
+ *                         when de-fusion is uncalibrated. The all-clear track the dashboard shows.
  * @param fired            whether this transition opened an alert on the configured firing arm
  * @param firedKind        the fire direction when {@link #fired()}, otherwise {@code null}
  * @param decisionThreshold the CUSUM decision interval {@code h} (in calm-sigma units), {@code > 0}
@@ -43,6 +48,7 @@ public record PipelineObservation(
         ChangeMetrics metrics,
         double cusumSPlus,
         double cusumSMinus,
+        double recoveryGauge,
         boolean fired,
         SignalKind firedKind,
         double decisionThreshold,

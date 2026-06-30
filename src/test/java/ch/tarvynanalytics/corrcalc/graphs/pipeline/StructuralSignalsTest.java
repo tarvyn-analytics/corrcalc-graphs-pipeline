@@ -2,6 +2,7 @@ package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 
 import ch.tarvynanalytics.graphs.algos.model.ChangeMetrics;
 import ch.tarvynanalytics.graphs.algos.model.ChangeSignal;
+import ch.tarvynanalytics.graphs.algos.model.FireDirection;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -16,7 +17,7 @@ class StructuralSignalsTest {
     @Test
     void fromChangeSignal_MapsEveryMetricAndCusumArm() {
         ChangeMetrics metrics = new ChangeMetrics(0.043, 0.71, 0.12, 2, 0.72, List.of(2, 1));
-        ChangeSignal signal = new ChangeSignal(7, metrics, 9.4, 0.5, true);
+        ChangeSignal signal = new ChangeSignal(7, metrics, 9.4, 0.5, Double.NaN, FireDirection.FUSION);
 
         StructuralSignal s = StructuralSignals.fromChangeSignal(
                 signal, Instant.parse("2022-11-08T16:11:00Z"), "crypto", "intraday",
