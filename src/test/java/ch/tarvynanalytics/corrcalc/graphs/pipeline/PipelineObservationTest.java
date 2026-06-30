@@ -32,21 +32,21 @@ class PipelineObservationTest {
     @Test
     void constructor_RejectsNullMetricsAndNonPositiveThreshold() {
         assertThrows(IllegalArgumentException.class, () -> new PipelineObservation(
-                Instant.EPOCH, "crypto", "intraday", null, 0, 0, false, null, 8.0, 0.05, 0.02, 0.5, List.of()));
+                Instant.EPOCH, "crypto", "intraday", null, 0, 0, 0.0, false, null, 8.0, 0.05, 0.02, 0.5, List.of()));
         assertThrows(IllegalArgumentException.class, () -> new PipelineObservation(
-                Instant.EPOCH, "crypto", "intraday", metrics(0.05), 0, 0, false, null, 0.0, 0.05, 0.02, 0.5, List.of()));
+                Instant.EPOCH, "crypto", "intraday", metrics(0.05), 0, 0, 0.0, false, null, 0.0, 0.05, 0.02, 0.5, List.of()));
     }
 
     @Test
     void contributors_NullBecomesEmpty_AndListIsDefensivelyCopiedImmutable() {
         PipelineObservation nullContrib = new PipelineObservation(Instant.EPOCH, "crypto", "daily",
-                metrics(0.05), 0, 0, false, null, 8.0, 0.05, 0.02, 0.5, null);
+                metrics(0.05), 0, 0, 0.0, false, null, 8.0, 0.05, 0.02, 0.5, null);
         assertEquals(List.of(), nullContrib.contributors());
 
         List<PairContribution> src = new java.util.ArrayList<>();
         src.add(new PairContribution("ETH", "BNB", 0.42));
         PipelineObservation obs = new PipelineObservation(Instant.EPOCH, "crypto", "daily",
-                metrics(0.05), 0, 0, false, null, 8.0, 0.05, 0.02, 0.5, src);
+                metrics(0.05), 0, 0, 0.0, false, null, 8.0, 0.05, 0.02, 0.5, src);
         src.clear();   // mutating the source must not affect the record
         assertEquals(List.of(new PairContribution("ETH", "BNB", 0.42)), obs.contributors());
         assertThrows(UnsupportedOperationException.class, () -> obs.contributors().clear());
@@ -136,7 +136,7 @@ class PipelineObservationTest {
     @Test
     void reasonCodes_DefusionFire_IsFlaggedDistinctly() {
         PipelineObservation defusion = new PipelineObservation(Instant.EPOCH, "crypto", "daily",
-                metrics(0.0001), 0.0, 30.0, true, SignalKind.DEFUSION, 8.0, 0.05, 0.02, 0.5, List.of());
+                metrics(0.0001), 0.0, 0.0, 0.95, true, SignalKind.DEFUSION, 8.0, 0.05, 0.02, 0.5, List.of());
         assertTrue(defusion.reasonCodes().contains(ReasonCode.FIRE_DEFUSION));
         assertFalse(defusion.reasonCodes().contains(ReasonCode.FIRE_FUSION));
     }
@@ -150,7 +150,7 @@ class PipelineObservationTest {
                                    double sPlus, double sMinus, boolean fired) {
         ChangeMetrics m = new ChangeMetrics(weightedChange, density, 0.1, 1, largestFraction, List.of(2));
         return new PipelineObservation(Instant.parse("2021-05-18T01:06:00Z"), "crypto", "intraday",
-                m, sPlus, sMinus, fired, fired ? SignalKind.FUSION : null, 8.0, mu, sigma, level, List.of());
+                m, sPlus, sMinus, Double.NaN, fired, fired ? SignalKind.FUSION : null, 8.0, mu, sigma, level, List.of());
     }
 
     static ChangeMetrics metrics(double weightedChange) {

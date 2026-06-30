@@ -10,6 +10,7 @@ import ch.tarvynanalytics.graphs.algos.ChangeDetectors;
 import ch.tarvynanalytics.graphs.algos.ChangeMetricsAnalyzer;
 import ch.tarvynanalytics.graphs.algos.model.ChangeMetrics;
 import ch.tarvynanalytics.graphs.algos.model.ChangeSignal;
+import ch.tarvynanalytics.graphs.algos.model.FireDirection;
 import ch.tarvynanalytics.graphs.algos.model.PairChange;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.ObservationPolicy;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PairContribution;
@@ -133,6 +134,15 @@ public final class PipelineEngine {
             out[i] = values.get(i);
         }
         return out;
+    }
+
+    /**
+     * Maps the S3 detector's fire direction to the pipeline {@link SignalKind}. A de-fusion fire is a
+     * {@link SignalKind#DEFUSION} all-clear; every other fire (the proven exit alarm) is a
+     * {@link SignalKind#FUSION}. Only called when the signal fired.
+     */
+    private static SignalKind toSignalKind(FireDirection direction) {
+        return direction == FireDirection.DEFUSION ? SignalKind.DEFUSION : SignalKind.FUSION;
     }
 
     private static String fmt(double v, int decimals) {
@@ -329,9 +339,9 @@ public final class PipelineEngine {
             detectionPoints++;
             List<PairContribution> contributors = contributors(detectPrev, current);
             detectPrev = current;
-            SignalKind kind = sig.fired() ? SignalKind.FUSION : null;
+            SignalKind kind = sig.fired() ? toSignalKind(sig.fireDirection()) : null;
             PipelineObservation obs = new PipelineObservation(asOf, market, timescale, sig.metrics(),
-                    sig.sPlus(), sig.sMinus(), sig.fired(), kind, cfg.detector().h(),
+                    sig.sPlus(), sig.sMinus(), sig.recoveryGauge(), sig.fired(), kind, cfg.detector().h(),
                     calibrationResult.mu(), calibrationResult.sigma(), calibrationResult.level(), contributors);
             if (policy.emit(obs)) {
                 observer.onObservation(obs);
@@ -340,7 +350,7 @@ public final class PipelineEngine {
             if (sig.fired()) {
                 fires++;
                 StructuralSignal signal = StructuralSignals.fromChangeSignal(
-                        sig, asOf, market, timescale, universe, SignalKind.FUSION, null);
+                        sig, asOf, market, timescale, universe, kind, null);
                 if (publisher.publish(signal).isPresent()) {
                     published++;
                 }

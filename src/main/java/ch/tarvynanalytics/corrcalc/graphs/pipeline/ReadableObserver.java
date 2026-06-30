@@ -76,6 +76,7 @@ public final class ReadableObserver implements PipelineObserver {
         return """
                 LEGEND  density=fraction of asset-pairs correlated (|r|>τ)   wΔ=structural move (mean|Δr|)
                         z=move size in calm-σ   act=closeness to firing max(S+,S-)/h   sev: CALM<WATCH<WARN<FIRE
+                        rec=recovery gauge (time-in-calm-band since the last fusion, 0→1 = healed)
                         [...]=why (an alarm needs density≥L AND act≥1.0)   who=top pairs by |Δr| (the movers)""";
     }
 
@@ -130,7 +131,7 @@ public final class ReadableObserver implements PipelineObserver {
     public static String renderLine(PipelineObservation o, Severity displayTier) {
         String why = o.reasonCodes().stream().map(ReasonCode::phrase).collect(Collectors.joining(SEP));
         String line = String.format(Locale.ROOT,
-                "%s  %-5s  density=%s  wΔ=%s (z=%s)  act=%s  S+=%s S-=%s  [%s]",
+                "%s  %-5s  density=%s  wΔ=%s (z=%s)  act=%s  S+=%s S-=%s  rec=%s  [%s]",
                 o.asOf(),
                 displayTier,
                 fmt(o.metrics().densityLevel(), 3),
@@ -139,6 +140,7 @@ public final class ReadableObserver implements PipelineObserver {
                 fmt(o.activation(), 2),
                 fmt(o.cusumSPlus(), 2),
                 fmt(o.cusumSMinus(), 2),
+                fmt(o.recoveryGauge(), 2),
                 why.isEmpty() ? "normal" : why);
         // Attribution stays off CALM lines (keeps the quiet stream terse); it is the actionable add
         // exactly when something is moving (WATCH/WARN/FIRE).
@@ -170,11 +172,24 @@ public final class ReadableObserver implements PipelineObserver {
                         + (d.biggestMoveContributors().isEmpty() ? "" : " (" + who(d.biggestMoveContributors()) + ")");
         return String.format(Locale.ROOT,
                 "DIGEST  %s/%s  %d obs (%d calm)  sev[CALM=%d WATCH=%d WARN=%d FIRE=%d]  "
-                        + "fires=%d published=%d  peak act=%s  peak z=%sσ  biggest=%s  fused-bars=%d",
+                        + "fires=%d published=%d  peak act=%s  peak z=%sσ  biggest=%s  fused-bars=%d  "
+                        + "peak recovery=%s  all-clear=%s",
                 nz(d.market()), nz(d.timescale()), d.observed(), s.calmBars(),
                 d.count(Severity.CALM), d.count(Severity.WATCH), d.count(Severity.WARN), d.count(Severity.FIRE),
                 s.fires(), s.published(),
-                fmt(d.maxActivation(), 2), fmt(d.maxAbsZ(), 1), biggest, d.timeInFused());
+                fmt(d.maxActivation(), 2), fmt(d.maxAbsZ(), 1), biggest, d.timeInFused(),
+                fmt(d.maxRecoveryGauge(), 2), allClear(d));
+    }
+
+    /** Renders the de-fusion all-clear: its timestamp and the time-to-recover from the first fusion, or "none". */
+    private static String allClear(RunDigest d) {
+        if (d.firstAllClearAt() == null) {
+            return "none";
+        }
+        var dur = d.timeToAllClear();
+        return dur == null
+                ? d.firstAllClearAt().toString()
+                : d.firstAllClearAt() + " (+" + dur.toHours() + "h after fusion)";
     }
 
     private static String nz(String s) {

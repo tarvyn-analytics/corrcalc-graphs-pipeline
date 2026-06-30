@@ -65,13 +65,37 @@ class RunDigestTest {
             double weightedChange, double mu, double sigma, double level, double sPlus, boolean fired) {
         ChangeMetrics m = new ChangeMetrics(weightedChange, density, 0.1, 1, largestFraction, List.of(2));
         return new PipelineObservation(Instant.parse(asOf), "crypto", "daily",
-                m, sPlus, 0.0, fired, fired ? SignalKind.FUSION : null, 8.0, mu, sigma, level, List.of());
+                m, sPlus, 0.0, Double.NaN, fired, fired ? SignalKind.FUSION : null, 8.0, mu, sigma, level, List.of());
     }
 
     private static PipelineObservation obsWithContributors(String asOf, double weightedChange,
             List<PairContribution> contributors) {
         ChangeMetrics m = new ChangeMetrics(weightedChange, 1.0, 0.1, 1, 1.0, List.of(2));
         return new PipelineObservation(Instant.parse(asOf), "crypto", "daily",
-                m, 8.0, 0.0, true, SignalKind.FUSION, 8.0, 0.0, 1.0, 0.167, contributors);
+                m, 8.0, 0.0, Double.NaN, true, SignalKind.FUSION, 8.0, 0.0, 1.0, 0.167, contributors);
+    }
+
+    @Test
+    void add_TracksPeakRecoveryGaugeAndTimeToAllClear() {
+        RunDigest d = new RunDigest();
+        d.add(gauge("2021-05-18T00:00:00Z", 0.30, true, SignalKind.FUSION));   // first fusion arms the latch
+        d.add(gauge("2021-05-19T00:00:00Z", 0.70, false, null));               // recovering
+        d.add(gauge("2021-05-20T00:00:00Z", 0.95, true, SignalKind.DEFUSION)); // all-clear 48h later
+        assertEquals(0.95, d.maxRecoveryGauge(), 1e-12);
+        assertEquals(Instant.parse("2021-05-20T00:00:00Z"), d.firstAllClearAt());
+        assertEquals(48, d.timeToAllClear().toHours());
+    }
+
+    @Test
+    void timeToAllClear_NullWhenNoFusionOrNoAllClear() {
+        RunDigest d = new RunDigest();
+        d.add(gauge("2021-05-20T00:00:00Z", 0.95, true, SignalKind.DEFUSION));  // all-clear with no prior fusion
+        assertNull(d.timeToAllClear());
+    }
+
+    private static PipelineObservation gauge(String asOf, double recoveryGauge, boolean fired, SignalKind kind) {
+        ChangeMetrics m = new ChangeMetrics(0.01, 0.2, 0.1, 1, 0.2, List.of(2));
+        return new PipelineObservation(Instant.parse(asOf), "crypto", "intraday",
+                m, 0.0, 0.0, recoveryGauge, fired, kind, 8.0, 0.05, 0.02, 0.5, List.of());
     }
 }
