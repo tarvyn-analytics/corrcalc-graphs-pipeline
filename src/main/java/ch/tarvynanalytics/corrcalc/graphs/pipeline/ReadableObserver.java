@@ -67,6 +67,30 @@ public final class ReadableObserver implements PipelineObserver {
         LOG.info("{}", digestBlock(digest, summary));
     }
 
+    @Override
+    public void onCalibrationEvent(CalibrationEvent event) {
+        if (event == null) {
+            throw new IllegalArgumentException("event must not be null");
+        }
+        digest.addCalibrationEvent(event);
+        LOG.info("{}", calibrationEventLine(event));
+    }
+
+    /**
+     * One calibration-lifecycle line — the fixed {@link CalibrationEventKind#phrase() phrase table}
+     * plus the raw before/after facts, never generated text: e.g.
+     * {@code CALIB-EVENT 2021-05-19T13:00:00Z  calm baseline drifted — recalibrated  epoch=2  μ 0.0100→0.0132  σ 0.0043→0.0051}.
+     *
+     * @param e the lifecycle event
+     * @return the human-readable event line
+     */
+    public static String calibrationEventLine(CalibrationEvent e) {
+        return String.format(Locale.ROOT, "CALIB-EVENT %s  %s  epoch=%d  μ %s→%s  σ %s→%s",
+                e.asOf(), e.kind().phrase(), e.epochId(),
+                fmt(e.muBefore(), 4), fmt(e.muAfter(), 4),
+                fmt(e.sigmaBefore(), 4), fmt(e.sigmaAfter(), 4));
+    }
+
     /**
      * The one-time legend defining every field of a rendered line.
      *
@@ -173,12 +197,21 @@ public final class ReadableObserver implements PipelineObserver {
         return String.format(Locale.ROOT,
                 "DIGEST  %s/%s  %d obs (%d calm)  sev[CALM=%d WATCH=%d WARN=%d FIRE=%d]  "
                         + "fires=%d published=%d  peak act=%s  peak z=%sσ  biggest=%s  fused-bars=%d  "
-                        + "peak recovery=%s  all-clear=%s",
+                        + "peak recovery=%s  all-clear=%s  calib[epochs=%d recal=%d%s]",
                 nz(d.market()), nz(d.timescale()), d.observed(), s.calmBars(),
                 d.count(Severity.CALM), d.count(Severity.WATCH), d.count(Severity.WARN), d.count(Severity.FIRE),
                 s.fires(), s.published(),
                 fmt(d.maxActivation(), 2), fmt(d.maxAbsZ(), 1), biggest, d.timeInFused(),
-                fmt(d.maxRecoveryGauge(), 2), allClear(d));
+                fmt(d.maxRecoveryGauge(), 2), allClear(d), d.epochsOpened(), d.recalibrations(),
+                muJourney(d));
+    }
+
+    /** The baseline's journey over the run ({@code  μ X→Y}), or empty when no lifecycle event arrived. */
+    private static String muJourney(RunDigest d) {
+        if (Double.isNaN(d.muLastAfter())) {
+            return "";
+        }
+        return " μ " + fmt(d.muFirstBefore(), 4) + "→" + fmt(d.muLastAfter(), 4);
     }
 
     /** Renders the de-fusion all-clear: its timestamp and the time-to-recover from the first fusion, or "none". */

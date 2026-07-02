@@ -34,6 +34,10 @@ final class RunDigest {
     private double biggestMove = Double.NaN;
     private Instant biggestMoveAt;
     private List<PairContribution> biggestMoveContributors = List.of();
+    private long epochsOpened;
+    private long recalibrations;
+    private double muFirstBefore = Double.NaN;
+    private double muLastAfter = Double.NaN;
 
     /** Folds one received observation into the running figures. */
     void add(PipelineObservation o) {
@@ -76,8 +80,51 @@ final class RunDigest {
         }
     }
 
+    /**
+     * Folds one calibration-lifecycle event into the running figures: how many epochs the adaptive
+     * source opened ({@code RECALIBRATED}/{@code EPOCH_OPENED}/{@code REGIME_TIMEOUT} — anything
+     * that re-baselined a live detector), how many of those were drift recalibrations, and the
+     * baseline's journey (the first μ-before → the latest μ-after).
+     */
+    void addCalibrationEvent(CalibrationEvent event) {
+        switch (event.kind()) {
+            case RECALIBRATED -> {
+                epochsOpened++;
+                recalibrations++;
+            }
+            case EPOCH_OPENED, REGIME_TIMEOUT -> epochsOpened++;
+            case PROMOTED_TO_LIVE, DEMOTED_TO_CALIBRATING -> {
+                // lifecycle transitions, not epoch opens
+            }
+        }
+        if (Double.isNaN(muFirstBefore)) {
+            muFirstBefore = event.muBefore();
+        }
+        muLastAfter = event.muAfter();
+    }
+
     long count(Severity s) {
         return bySeverity.getOrDefault(s, 0L);
+    }
+
+    /** Epochs the adaptive source opened on a live detector (drift, σ-guard or timeout re-baselines). */
+    long epochsOpened() {
+        return epochsOpened;
+    }
+
+    /** The drift-recalibration subset of {@link #epochsOpened()}. */
+    long recalibrations() {
+        return recalibrations;
+    }
+
+    /** The calm mean before the first lifecycle event, or NaN when none arrived (frozen modes). */
+    double muFirstBefore() {
+        return muFirstBefore;
+    }
+
+    /** The calm mean after the latest lifecycle event, or NaN when none arrived. */
+    double muLastAfter() {
+        return muLastAfter;
     }
 
     String market() {

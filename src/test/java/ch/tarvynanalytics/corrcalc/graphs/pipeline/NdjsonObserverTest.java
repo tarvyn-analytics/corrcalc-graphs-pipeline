@@ -27,7 +27,7 @@ class NdjsonObserverTest {
         JsonNode n = MAPPER.readTree(
                 NdjsonObserver.calibRecord(obs(1.0, 1.0, 0.81, 0.0647, 0.0258, 0.167, 34.0, true)));
         assertEquals("calib", n.get("rec").asText());
-        assertEquals(2, n.get("schema").asInt());
+        assertEquals(3, n.get("schema").asInt());
         assertEquals("crypto", n.get("market").asText());
         assertEquals("daily", n.get("timescale").asText());
         assertEquals(0.0647, n.get("mu").asDouble(), 1e-12);
@@ -257,5 +257,95 @@ class NdjsonObserverTest {
         assertEquals(1, arr.size());
         assertEquals("ETH", arr.get(0).get("a").asText());
         assertEquals(0.42, arr.get(0).get("absDelta").asDouble(), 1e-12);
+    }
+
+    @Test
+    void calibEventRecord_SerializesKindEpochAndBeforeAfter() throws Exception {
+        JsonNode n = MAPPER.readTree(NdjsonObserver.calibEventRecord(new CalibrationEvent(
+                CalibrationEventKind.RECALIBRATED, 2, 0.0100, 0.0132, 0.0043, 0.0051,
+                Instant.parse("2021-05-19T13:00:00Z"))));
+        assertEquals("calibEvent", n.get("rec").asText());
+        assertEquals(3, n.get("schema").asInt());
+        assertEquals("2021-05-19T13:00:00Z", n.get("asOf").asText());
+        assertEquals("RECALIBRATED", n.get("kind").asText());
+        assertEquals(2, n.get("epochId").asLong());
+        assertEquals(0.0100, n.get("muBefore").asDouble(), 1e-12);
+        assertEquals(0.0132, n.get("muAfter").asDouble(), 1e-12);
+        assertEquals(0.0043, n.get("sigmaBefore").asDouble(), 1e-12);
+        assertEquals(0.0051, n.get("sigmaAfter").asDouble(), 1e-12);
+    }
+
+    @Test
+    void calibEventRecord_PromotionWithoutPriorBaseline_BeforeFieldsAreJsonNull() throws Exception {
+        JsonNode n = MAPPER.readTree(NdjsonObserver.calibEventRecord(new CalibrationEvent(
+                CalibrationEventKind.PROMOTED_TO_LIVE, 0, Double.NaN, 0.05, Double.NaN, 0.02,
+                Instant.parse("2021-02-10T00:00:00Z"))));
+        assertTrue(n.get("muBefore").isNull(), n.toString());
+        assertTrue(n.get("sigmaBefore").isNull(), n.toString());
+        assertEquals(0.05, n.get("muAfter").asDouble(), 1e-12);
+    }
+
+    @Test
+    void onCalibrationEvent_EmitsOneCalibEventLine_AndRejectsNull() throws Exception {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        NdjsonObserver observer = new NdjsonObserver(new PrintStream(bos, true, StandardCharsets.UTF_8));
+
+        observer.onCalibrationEvent(new CalibrationEvent(
+                CalibrationEventKind.EPOCH_OPENED, 1, 0.01, 0.01, 0.004, 0.006,
+                Instant.parse("2021-05-19T13:00:00Z")));
+
+        String[] lines = bos.toString(StandardCharsets.UTF_8).split("\n");
+        assertEquals(1, lines.length, bos.toString(StandardCharsets.UTF_8));
+        assertEquals("calibEvent", MAPPER.readTree(lines[0]).get("rec").asText());
+        assertThrows(IllegalArgumentException.class, () -> observer.onCalibrationEvent(null));
+    }
+
+    @Test
+    void configRecord_CarriesEpochProvenance() throws Exception {
+        JsonNode n = MAPPER.readTree(NdjsonObserver.configRecord(new RunContext(
+                "crypto", "intraday", "replay",
+                new ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationProvenance(
+                        "adaptive", 2L,
+                        Instant.parse("2021-01-01T00:00:00Z"), Instant.parse("2021-01-15T00:00:00Z")),
+                14, 0.5, 1.5, 8.0, 99.0, "UPPER", 18, 60.0)));
+        assertEquals("adaptive", n.get("calibration").asText());
+        assertEquals(2, n.get("epochId").asLong());
+        assertEquals("2021-01-01T00:00:00Z", n.get("calibSourceFrom").asText());
+        assertEquals("2021-01-15T00:00:00Z", n.get("calibSourceTo").asText());
+    }
+
+    @Test
+    void configRecord_UnknownSourceWindow_SerializesAsJsonNull() throws Exception {
+        JsonNode n = MAPPER.readTree(NdjsonObserver.configRecord(new RunContext(
+                "crypto", "daily", "replay",
+                new ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationProvenance("leading-warmup", 0L, null, null),
+                14, 0.5, 1.5, 8.0, 99.0, "UPPER", 18, 60.0)));
+        assertEquals(0, n.get("epochId").asLong());
+        assertTrue(n.get("calibSourceFrom").isNull(), n.toString());
+        assertTrue(n.get("calibSourceTo").isNull(), n.toString());
+    }
+
+    @Test
+    void digestRecord_FoldsLifecycleCountsAndMuJourney() throws Exception {
+        RunDigest d = new RunDigest();
+        d.addCalibrationEvent(new CalibrationEvent(CalibrationEventKind.RECALIBRATED, 1,
+                0.0100, 0.0132, 0.0043, 0.0051, Instant.parse("2021-05-19T13:00:00Z")));
+        d.addCalibrationEvent(new CalibrationEvent(CalibrationEventKind.EPOCH_OPENED, 2,
+                0.0132, 0.0140, 0.0051, 0.0060, Instant.parse("2021-06-01T00:00:00Z")));
+        JsonNode n = MAPPER.readTree(NdjsonObserver.digestRecord(d, new RunSummary(1, 1, 1, 1, 18)));
+        assertEquals(2, n.get("epochsOpened").asLong());
+        assertEquals(1, n.get("recalibrations").asLong());
+        assertEquals(0.0100, n.get("muJourney").get("from").asDouble(), 1e-12);
+        assertEquals(0.0140, n.get("muJourney").get("to").asDouble(), 1e-12);
+    }
+
+    @Test
+    void digestRecord_NoLifecycleEvents_MuJourneyIsJsonNull() throws Exception {
+        RunDigest d = new RunDigest();
+        d.add(obs(0.4, 0.5, 0.05, 0.05, 0.02, 0.5, 1.0, false));
+        JsonNode n = MAPPER.readTree(NdjsonObserver.digestRecord(d, new RunSummary(1, 1, 1, 1, 18)));
+        assertEquals(0, n.get("epochsOpened").asLong());
+        assertEquals(0, n.get("recalibrations").asLong());
+        assertTrue(n.get("muJourney").isNull(), n.toString());
     }
 }

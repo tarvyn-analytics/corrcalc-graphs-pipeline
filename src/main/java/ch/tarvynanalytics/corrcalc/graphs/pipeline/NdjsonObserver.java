@@ -29,8 +29,13 @@ import java.util.List;
  */
 public final class NdjsonObserver implements PipelineObserver {
 
-    /** The record-schema version; bump on any incompatible change to the emitted fields. */
-    public static final int SCHEMA = 2;
+    /**
+     * The record-schema version; bump on any incompatible change to the emitted fields.
+     * v3: the {@code calibEvent} record (adaptive lifecycle), epoch provenance on {@code config}
+     * ({@code epochId}, {@code calibSourceFrom/To}), and the digest's {@code epochsOpened} /
+     * {@code recalibrations} / {@code muJourney} block (H2 PR-6).
+     */
+    public static final int SCHEMA = 3;
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -77,6 +82,15 @@ public final class NdjsonObserver implements PipelineObserver {
         emit(digestRecord(digest, summary));
     }
 
+    @Override
+    public void onCalibrationEvent(CalibrationEvent event) {
+        if (event == null) {
+            throw new IllegalArgumentException("event must not be null");
+        }
+        digest.addCalibrationEvent(event);
+        emit(calibEventRecord(event));
+    }
+
     private void emit(String line) {
         out.print(line);
         out.print('\n');
@@ -99,6 +113,11 @@ public final class NdjsonObserver implements PipelineObserver {
         n.put("timescale", c.timescale());
         n.put("mode", c.mode());
         n.put("calibration", c.calibration().calibrationMode());
+        n.put("epochId", c.calibration().epochId());
+        putNullable(n, "calibSourceFrom",
+                c.calibration().sourceFrom() == null ? null : c.calibration().sourceFrom().toString());
+        putNullable(n, "calibSourceTo",
+                c.calibration().sourceTo() == null ? null : c.calibration().sourceTo().toString());
         n.put("window", c.window());
         putNum(n, "edgeThreshold", c.edgeThreshold());
         putNum(n, "cusumK", c.cusumK());
@@ -168,6 +187,28 @@ public final class NdjsonObserver implements PipelineObserver {
     }
 
     /**
+     * One {@code calibEvent} record — a calibration-lifecycle event in bounded machine form: the
+     * finite kind plus the raw before/after facts (the human phrase stays a fixed client-side
+     * lookup, {@link CalibrationEventKind#phrase()}).
+     *
+     * @param e the lifecycle event
+     * @return the event record as a single JSON object
+     */
+    public static String calibEventRecord(CalibrationEvent e) {
+        ObjectNode n = MAPPER.createObjectNode();
+        n.put("rec", "calibEvent");
+        n.put("schema", SCHEMA);
+        n.put("asOf", e.asOf().toString());
+        n.put("kind", e.kind().name());
+        n.put("epochId", e.epochId());
+        putNum(n, "muBefore", e.muBefore());
+        putNum(n, "muAfter", e.muAfter());
+        putNum(n, "sigmaBefore", e.sigmaBefore());
+        putNum(n, "sigmaAfter", e.sigmaAfter());
+        return n.toString();
+    }
+
+    /**
      * The terminal {@code digest} record — the run folded into one object: counts by severity, the peak
      * activation and σ-move, the single biggest move (and when), fired/published, and a time-in-fused
      * proxy. The counts are over the observations this observer received (see {@link RunDigest}).
@@ -214,6 +255,15 @@ public final class NdjsonObserver implements PipelineObserver {
             putNum(bm, "magnitude", d.biggestMove());
             bm.put("asOf", d.biggestMoveAt().toString());
             putContributors(bm, d.biggestMoveContributors());
+        }
+        n.put("epochsOpened", d.epochsOpened());
+        n.put("recalibrations", d.recalibrations());
+        if (Double.isNaN(d.muLastAfter())) {
+            n.putNull("muJourney");
+        } else {
+            ObjectNode mj = n.putObject("muJourney");
+            putNum(mj, "from", d.muFirstBefore());
+            putNum(mj, "to", d.muLastAfter());
         }
         return n.toString();
     }

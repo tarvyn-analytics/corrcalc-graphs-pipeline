@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -146,5 +147,53 @@ class ReadableObserverTest {
         String block = ReadableObserver.digestBlock(d, new RunSummary(2, 2, 2, 2, 18));
         assertTrue(block.contains("peak recovery=0.95"), block);
         assertTrue(block.contains("all-clear=2021-05-20T00:00:00Z (+48h after fusion)"), block);
+    }
+
+    @Test
+    void calibrationEventLine_ShowsPhraseEpochAndBeforeAfter() {
+        String line = ReadableObserver.calibrationEventLine(new CalibrationEvent(
+                CalibrationEventKind.RECALIBRATED, 2, 0.0100, 0.0132, 0.0043, 0.0051,
+                Instant.parse("2021-05-19T13:00:00Z")));
+        assertEquals("CALIB-EVENT 2021-05-19T13:00:00Z  calm baseline drifted — recalibrated"
+                + "  epoch=2  μ 0.0100→0.0132  σ 0.0043→0.0051", line);
+    }
+
+    @Test
+    void calibrationEventLine_PromotionWithoutPriorBaseline_RendersNaN() {
+        String line = ReadableObserver.calibrationEventLine(new CalibrationEvent(
+                CalibrationEventKind.PROMOTED_TO_LIVE, 0, Double.NaN, 0.0500, Double.NaN, 0.0200,
+                Instant.parse("2021-02-10T00:00:00Z")));
+        assertTrue(line.contains("calibrated — scoring live"), line);
+        assertTrue(line.contains("μ NaN→0.0500"), line);
+    }
+
+    @Test
+    void onCalibrationEvent_RejectsNull() {
+        assertThrows(IllegalArgumentException.class, () -> new ReadableObserver().onCalibrationEvent(null));
+    }
+
+    @Test
+    void digestBlock_ShowsLifecycleCountsAndMuJourney() {
+        RunDigest d = new RunDigest();
+        d.addCalibrationEvent(new CalibrationEvent(CalibrationEventKind.RECALIBRATED, 1,
+                0.0100, 0.0132, 0.0043, 0.0051, Instant.parse("2021-05-19T13:00:00Z")));
+        String block = ReadableObserver.digestBlock(d, new RunSummary(1, 1, 1, 1, 18));
+        assertTrue(block.contains("calib[epochs=1 recal=1 μ 0.0100→0.0132]"), block);
+    }
+
+    @Test
+    void digestBlock_NoLifecycleEvents_OmitsMuJourney() {
+        RunDigest d = new RunDigest();
+        d.add(obs(0.4, 0.5, 0.05, 0.05, 0.02, 0.5, 1.0, false));
+        String block = ReadableObserver.digestBlock(d, new RunSummary(1, 1, 1, 1, 18));
+        assertTrue(block.contains("calib[epochs=0 recal=0]"), block);
+    }
+
+    @Test
+    void calibrationEventKind_EveryKindHasADistinctFixedPhrase() {
+        List<String> phrases = java.util.Arrays.stream(CalibrationEventKind.values())
+                .map(CalibrationEventKind::phrase).toList();
+        assertEquals(CalibrationEventKind.values().length, phrases.stream().distinct().count());
+        assertTrue(phrases.stream().noneMatch(String::isBlank));
     }
 }

@@ -48,4 +48,10 @@ public final class ThinningObserver implements PipelineObserver {
     public void onComplete(RunSummary summary) {
         delegate.onComplete(summary);
     }
+
+    @Override
+    public void onCalibrationEvent(CalibrationEvent event) {
+        // never thinned: lifecycle events are rare and each one is load-bearing
+        delegate.onCalibrationEvent(event);
+    }
 }
