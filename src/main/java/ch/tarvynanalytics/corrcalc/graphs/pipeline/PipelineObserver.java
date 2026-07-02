@@ -46,6 +46,18 @@ public interface PipelineObserver {
         // default: observers that do not summarize ignore the run outcome
     }
 
+    /**
+     * Receives one calibration-lifecycle event — an adaptive run's promotion, recalibration or
+     * timeout ({@code CalibrationEvent}, a bounded kind + raw before/after facts). Interleaved with
+     * {@link #onObservation} in stream order; never called by the frozen calibration modes. The
+     * default is a no-op.
+     *
+     * @param event the lifecycle event
+     */
+    default void onCalibrationEvent(CalibrationEvent event) {
+        // default: observers that do not track the calibration lifecycle ignore it
+    }
+
     /** A sink that drops every observation — the default when a consumer wants only the fire-stream. */
     static PipelineObserver noOp() {
         return observation -> {

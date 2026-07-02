@@ -22,10 +22,15 @@ import java.time.LocalDate;
  * @param from           earliest UTC bar date to keep (inclusive), or {@code null} for no lower bound
  * @param to             latest UTC bar date to keep (inclusive), or {@code null} for no upper bound
  * @param calibrationMode     how the detector is calibrated: {@code "leading-warmup"} (the pragmatic
- *                            leading prefix, the default) or {@code "calm-block"} (primed from a
- *                            persisted walk-forward artifact — requires {@code calibrationArtifact})
- * @param calibrationArtifact the persisted {@code CalibrationArtifact} JSON a calm-block run primes
- *                            from, or {@code null} (required iff {@code calm-block})
+ *                            leading prefix, the default), {@code "calm-block"} (primed from a
+ *                            persisted walk-forward artifact — requires {@code calibrationArtifact}),
+ *                            or {@code "adaptive"} (the online walk-forward automation — quietness
+ *                            gate, robust estimator, drift meta-monitor; the product default once
+ *                            validated)
+ * @param calibrationArtifact the persisted {@code CalibrationArtifact} JSON: required for
+ *                            {@code calm-block} (the baseline), optional for {@code adaptive} (an
+ *                            operator-vouched prior to start LIVE on), rejected for
+ *                            {@code leading-warmup}
  * @param saveCalibration     where to persist the run's resulting calibration artifact, or
  *                            {@code null} to not save
  */
@@ -45,10 +50,12 @@ public record ReplayOptions(
         Path calibrationArtifact,
         Path saveCalibration) {
 
-    /** The calibration-mode labels this replay understands (adaptive arrives with H2 PR-5). */
+    /** The pragmatic leading-prefix calibration-mode label (the "quick look" default). */
     public static final String LEADING_WARMUP = "leading-warmup";
     /** The walk-forward calm-block mode label. */
     public static final String CALM_BLOCK = "calm-block";
+    /** The adaptive (online walk-forward) mode label (H2 PR-5). */
+    public static final String ADAPTIVE = "adaptive";
 
     /** Validates the knobs, throwing {@link IllegalArgumentException} with the offending value bracketed. */
     public ReplayOptions {
@@ -76,9 +83,10 @@ public record ReplayOptions(
         if (heartbeatEvery < 1) {
             throw new IllegalArgumentException("heartbeatEvery must be >= 1 [" + heartbeatEvery + "]");
         }
-        if (!LEADING_WARMUP.equals(calibrationMode) && !CALM_BLOCK.equals(calibrationMode)) {
-            throw new IllegalArgumentException("calibrationMode must be " + LEADING_WARMUP + " or "
-                    + CALM_BLOCK + " [" + calibrationMode + "]");
+        if (!LEADING_WARMUP.equals(calibrationMode) && !CALM_BLOCK.equals(calibrationMode)
+                && !ADAPTIVE.equals(calibrationMode)) {
+            throw new IllegalArgumentException("calibrationMode must be " + LEADING_WARMUP + ", "
+                    + CALM_BLOCK + " or " + ADAPTIVE + " [" + calibrationMode + "]");
         }
         if (CALM_BLOCK.equals(calibrationMode) && calibrationArtifact == null) {
             throw new IllegalArgumentException(

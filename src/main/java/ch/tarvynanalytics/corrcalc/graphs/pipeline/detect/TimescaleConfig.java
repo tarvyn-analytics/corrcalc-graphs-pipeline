@@ -39,9 +39,14 @@ public record TimescaleConfig(int window, DetectorConfig detector, RearmConfig r
         DetectorConfig withDefusion = new DetectorConfig(base.k(), base.h(), base.levelPctile(),
                 base.edgeThreshold(), base.epsilonSigma(), base.fireArm(),
                 new DefusionConfig(0.75, 0.80, 2880, true));
-        // Re-arm on the all-clear + 48 h cool-down (2880 one-minute bars); the calendar backstop is
-        // off — de-fusion drives the cadence on this timescale (numerics spec Q4.1).
-        return new TimescaleConfig(480, withDefusion, new RearmConfig(true, 2880, 0.25, 5, 0));
+        // Re-arm on the all-clear + 48 h cool-down (2880 one-minute bars), with the 14-day calendar
+        // backstop (20160 bars — the starvation-timeout scale, far beyond any genuine
+        // all-clear+cool-down path). The backstop expires a regime question that never resolves:
+        // without it, one fusion in a stretch whose aftermath never recovers keeps the detector
+        // fused forever and eats every later event (the china_mining_ban lead-in fire on the
+        // adaptive tape). A backstop re-arm emits no all-clear, so non-recovery suppression
+        // (may2021) is untouched (numerics spec Q4.1 + PR-5 amendment).
+        return new TimescaleConfig(480, withDefusion, new RearmConfig(true, 2880, 0.25, 5, 20160));
     }
 
     /**

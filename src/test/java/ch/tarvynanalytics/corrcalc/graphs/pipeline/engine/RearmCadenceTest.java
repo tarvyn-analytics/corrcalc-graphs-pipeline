@@ -110,6 +110,32 @@ class RearmCadenceTest {
     }
 
     @Test
+    void observe_ReportsTheRearmKind_ResolvedVsExpired() {
+        // The engine keys the adaptive re-baseline off the kind: an all-clear-driven re-arm
+        // RESOLVED the question (the baseline stood correct); a backstop re-arm EXPIRED it
+        // unresolved (the baseline must re-learn).
+        RearmCadence resolved = intraday(0);
+        resolved.observe(sig(FireDirection.FUSION, 9.0, 0.9));
+        assertEquals(RearmCadence.Rearm.NONE, resolved.observe(sig(FireDirection.NONE, 1.0, 0.9)));
+        assertEquals(RearmCadence.Rearm.RESOLVED, resolved.observe(sig(FireDirection.DEFUSION, 0.2, 0.3)),
+                "cool-down 0: the all-clear bar re-arms as RESOLVED");
+
+        RearmCadence expired = daily(3, 4);
+        expired.observe(sig(FireDirection.FUSION, 9.0, 0.9));
+        for (int i = 0; i < 3; i++) {
+            assertEquals(RearmCadence.Rearm.NONE, expired.observe(sig(FireDirection.NONE, 5.0, 0.9)));
+        }
+        assertEquals(RearmCadence.Rearm.EXPIRED, expired.observe(sig(FireDirection.NONE, 5.0, 0.9)),
+                "the 4th elevated bar after the fire trips the backstop as EXPIRED");
+
+        RearmCadence relaxed = daily(2, 0);
+        relaxed.observe(sig(FireDirection.FUSION, 9.0, 0.9));
+        assertEquals(RearmCadence.Rearm.NONE, relaxed.observe(sig(FireDirection.NONE, 1.0, 0.3)));
+        assertEquals(RearmCadence.Rearm.RESOLVED, relaxed.observe(sig(FireDirection.NONE, 0.5, 0.3)),
+                "the sustained relaxation re-arms as RESOLVED (the question decayed shut)");
+    }
+
+    @Test
     void disabled_NeverAdvances() {
         RearmCadence c = new RearmCadence(RearmConfig.disabled(), true, FireArm.UPPER, H, LEVEL_GATE);
         c.observe(sig(FireDirection.FUSION, 9.0, 0.9));

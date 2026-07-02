@@ -1,18 +1,27 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline.engine;
 
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.CalibrationEvent;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.CalibrationEventKind;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.CollectingSink;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.ObservationPolicy;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PairContribution;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObservation;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObserver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.SignalKind;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.AdaptiveCalibrationConfig;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationArtifact;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationProvenance;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSource;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSources;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.TimescaleConfig;
+import ch.tarvynanalytics.graphs.algos.Calibration;
 import ch.tarvynanalytics.graphs.algos.DetectorConfig;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 
@@ -219,6 +228,129 @@ class PipelineEngineTest {
     }
 
     @Test
+    void detect_FusedAwaitingRearmSpan_FreezesTheCalibrationSource() {
+        // The may2021 suppression guard (numerics spec Q2 amendment): between a FUSION and its
+        // re-arm resolution, every calm statistic handed to the calibration source must carry the
+        // freeze flag — the baseline may not move while an all-clear is pending against it.
+        List<Instant> asOfs = new ArrayList<>();
+        List<Boolean> frozen = new ArrayList<>();
+        CalibrationSource delegate = CalibrationSources.leadingWarmup(24, rearmCfg(true).detector());
+        CalibrationSource recording = new CalibrationSource() {
+            @Override
+            public void observe(Instant asOf, double weightedChange, double density) {
+                delegate.observe(asOf, weightedChange, density);
+            }
+
+            @Override
+            public void observeDetection(Instant asOf, double weightedChange, double density,
+                                         boolean alarmActive) {
+                asOfs.add(asOf);
+                frozen.add(alarmActive);
+            }
+
+            @Override
+            public boolean isReady() {
+                return delegate.isReady();
+            }
+
+            @Override
+            public Calibration calibration() {
+                return delegate.calibration();
+            }
+
+            @Override
+            public CalibrationProvenance provenance() {
+                return delegate.provenance();
+            }
+
+            @Override
+            public CalibrationArtifact artifact(String market, String timescale) {
+                return delegate.artifact(market, timescale);
+            }
+        };
+        CollectingSink sink = new CollectingSink();
+        PipelineEngine engine = PipelineEngine.builder(syms(4), rearmCfg(true)).calmBars(24)
+                .market("crypto").timescale("intraday").observer(PipelineObserver.noOp())
+                .sink(sink).calibrationSource(recording).build();
+
+        drive(engine, cycles(36, 10, 40, 10, 20, 21L));
+
+        Instant fusionAt = sink.signals().stream().filter(s -> s.kind() == SignalKind.FUSION)
+                .findFirst().orElseThrow().asOf();
+        Instant allClearAt = sink.signals().stream().filter(s -> s.kind() == SignalKind.DEFUSION)
+                .findFirst().orElseThrow().asOf();
+        for (int i = 0; i < asOfs.size(); i++) {
+            Instant t = asOfs.get(i);
+            if (!t.isBefore(fusionAt) && !t.isAfter(allClearAt)) {
+                assertTrue(frozen.get(i), "frozen throughout the fused span, bar " + t);
+            }
+        }
+        int beforeFusion = asOfs.indexOf(fusionAt);
+        assertTrue(beforeFusion > 0 && !frozen.get(beforeFusion - 1),
+                "armed calm before the fusion is not frozen");
+        assertFalse(frozen.get(frozen.size() - 1),
+                "after the re-arm resolves, calm bars learn again");
+    }
+
+    @Test
+    void detect_BackstopExpiry_TellsTheCalibrationSourceToRebaseline() {
+        // The Q4.1 expiry amendment wiring: when the calendar backstop expires an unresolved
+        // question (a fusion whose aftermath never recovers), the engine must hand the expiry to
+        // the calibration source — the adaptive one re-baselines; a frozen one ignores it.
+        List<Instant> expiries = new ArrayList<>();
+        CalibrationSource delegate = CalibrationSources.leadingWarmup(24, rearmCfg(true).detector());
+        CalibrationSource recording = new CalibrationSource() {
+            @Override
+            public void observe(Instant asOf, double weightedChange, double density) {
+                delegate.observe(asOf, weightedChange, density);
+            }
+
+            @Override
+            public void onRegimeExpired(Instant asOf) {
+                expiries.add(asOf);
+            }
+
+            @Override
+            public boolean isReady() {
+                return delegate.isReady();
+            }
+
+            @Override
+            public Calibration calibration() {
+                return delegate.calibration();
+            }
+
+            @Override
+            public CalibrationProvenance provenance() {
+                return delegate.provenance();
+            }
+
+            @Override
+            public CalibrationArtifact artifact(String market, String timescale) {
+                return delegate.artifact(market, timescale);
+            }
+        };
+        DetectorConfig detector = rearmCfg(true).detector();
+        TimescaleConfig backstopCfg = new TimescaleConfig(WINDOW, detector,
+                new ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.RearmConfig(true, 2, 0.25, 5, 30));
+        CollectingSink sink = new CollectingSink();
+        PipelineEngine engine = PipelineEngine.builder(syms(4), backstopCfg).calmBars(24)
+                .market("crypto").timescale("intraday").observer(PipelineObserver.noOp())
+                .sink(sink).calibrationSource(recording).build();
+
+        drive(engine, cycles(36, 60, 20, 0, 0, 21L));   // one fusion, 60 elevated bars: never recovers
+
+        // The wiring under test: the unresolved question expires via the backstop and reaches the
+        // source exactly once (no DEFUSION ever fires on this tape — the span never recovers, so
+        // the only re-arm path left is the calendar expiry). The adaptive source's response to the
+        // expiry is pinned separately in AdaptiveQuietnessGateTest.
+        assertEquals(1, expiries.size(),
+                "the unresolved question must expire via the backstop and reach the source once");
+        assertTrue(sink.signals().stream().noneMatch(s -> s.kind() == SignalKind.DEFUSION),
+                "nothing recovered on this tape: no all-clear may precede the expiry");
+    }
+
+    @Test
     void onReturns_MultiFusionStream_DisabledRearm_FiresOnceEver() {
         // The unchanged-behaviour guard: with the cadence disabled (bare TimescaleConfig), the
         // identical stream keeps the pre-H2 debounce — one fusion, ever.
@@ -269,6 +401,179 @@ class PipelineEngineTest {
             }
         }
         return new Returns(timestamps, returns);
+    }
+
+    @Test
+    void detect_SourceOpensAnEpoch_RecalibratesTheDetectorAndForwardsTheEvent() {
+        // The online half of the calibration seam (H2 PR-5): a source that opens an epoch after the
+        // 5th scored transition must (a) have the fresh calibration installed on the RUNNING
+        // detector — later observations echo the new baseline — and (b) have its bounded event
+        // forwarded to the observer exactly once.
+        Calibration first = new Calibration(0.01, 0.02, 0.9, 0.3, 0.05);
+        Calibration second = new Calibration(0.05, 0.04, 0.95, 0.35, 0.06);
+        CalibrationSource scripted = new CalibrationSource() {
+            private int scored;
+            private Calibration current = first;
+            private CalibrationEvent pending;
+
+            @Override
+            public void observe(Instant asOf, double weightedChange, double density) {
+                // ready before the stream: the calibration hop never feeds this source
+            }
+
+            @Override
+            public void observeDetection(Instant asOf, double weightedChange, double density,
+                                         boolean alarmActive) {
+                if (++scored == 5) {
+                    current = second;
+                    pending = new CalibrationEvent(CalibrationEventKind.RECALIBRATED, 1L,
+                            first.mu(), second.mu(), first.sigma(), second.sigma(), asOf);
+                }
+            }
+
+            @Override
+            public boolean isReady() {
+                return true;
+            }
+
+            @Override
+            public Calibration calibration() {
+                return current;
+            }
+
+            @Override
+            public Optional<CalibrationEvent> pollEvent() {
+                CalibrationEvent event = pending;
+                pending = null;
+                return Optional.ofNullable(event);
+            }
+
+            @Override
+            public CalibrationProvenance provenance() {
+                return new CalibrationProvenance("adaptive", 0L, null, null);
+            }
+
+            @Override
+            public CalibrationArtifact artifact(String market, String timescale) {
+                throw new UnsupportedOperationException("not persisted in this test");
+            }
+        };
+        List<CalibrationEvent> events = new ArrayList<>();
+        List<PipelineObservation> observed = new ArrayList<>();
+        PipelineObserver observer = new PipelineObserver() {
+            @Override
+            public void onObservation(PipelineObservation observation) {
+                observed.add(observation);
+            }
+
+            @Override
+            public void onCalibrationEvent(CalibrationEvent event) {
+                events.add(event);
+            }
+        };
+        PipelineEngine engine = builder(24).sink(new CollectingSink()).observer(observer)
+                .observationPolicy(ObservationPolicy.all()).calibrationSource(scripted).build();
+
+        drive(engine, calmThenFused(60, 0, 4, 13L));
+
+        assertEquals(1, events.size(), "the epoch event is forwarded exactly once");
+        assertEquals(CalibrationEventKind.RECALIBRATED, events.get(0).kind());
+        assertEquals(first.mu(), observed.get(4).calmMu(), "the epoch bar itself was scored on the old baseline");
+        assertEquals(second.mu(), observed.get(5).calmMu(), "the next transition echoes the recalibrated detector");
+        assertTrue(observed.stream().skip(5).allMatch(o -> o.calmMu() == second.mu()));
+    }
+
+    @Test
+    void detect_SourceNotLive_SuppressesTheFireStreamButKeepsTheObservation() {
+        // A demoted source does not vouch for alerts: the raw fired fact stays on the observation
+        // seam, but nothing reaches the product fire-stream (spec 2.4 "no alerts until re-armed").
+        Calibration external = new Calibration(0.01, 0.02, 0.9, 0.3, 0.05);
+        CalibrationSource demoted = new CalibrationSource() {
+            @Override
+            public void observe(Instant asOf, double weightedChange, double density) {
+                // externally calibrated
+            }
+
+            @Override
+            public boolean isReady() {
+                return true;
+            }
+
+            @Override
+            public boolean live() {
+                return false;
+            }
+
+            @Override
+            public Calibration calibration() {
+                return external;
+            }
+
+            @Override
+            public CalibrationProvenance provenance() {
+                return new CalibrationProvenance("adaptive", 1L, null, null);
+            }
+
+            @Override
+            public CalibrationArtifact artifact(String market, String timescale) {
+                throw new UnsupportedOperationException("not persisted in this test");
+            }
+        };
+        CollectingSink sink = new CollectingSink();
+        List<PipelineObservation> observed = new ArrayList<>();
+        PipelineEngine engine = builder(24).sink(sink).observer(observed::add)
+                .observationPolicy(ObservationPolicy.all()).calibrationSource(demoted).build();
+
+        drive(engine, calmThenFused(48, 24, 4, 42L));
+
+        RunSummary s = engine.summary();
+        assertTrue(s.fires() >= 1, "the detector still scores and fires internally");
+        assertEquals(0L, s.published(), "an unvouched fire never reaches the product stream");
+        assertEquals(0, sink.count());
+        assertTrue(observed.stream().anyMatch(PipelineObservation::fired),
+                "the raw fired fact is never censored on the observation seam");
+    }
+
+    @Test
+    void onReturns_AdaptiveColdStart_PromotesAfterKAdmittedBarsThenScores() {
+        // The real adaptive source through the real engine: the first window-point is a NaN gap
+        // (never counted), the next K = 6 calm points warm it up, the promotion event is forwarded,
+        // and every later snapshot is a scored transition.
+        AdaptiveCalibrationConfig adaptive =
+                new AdaptiveCalibrationConfig(6, 1e6, 0, 0.25, 1e6, 1e-6, 1e6, 1000000, 64);
+        CalibrationSource source = CalibrationSources.adaptive(adaptive, DetectorConfig.crypto(), null);
+        List<CalibrationEvent> events = new ArrayList<>();
+        List<PipelineObservation> observed = new ArrayList<>();
+        PipelineObserver observer = new PipelineObserver() {
+            @Override
+            public void onObservation(PipelineObservation observation) {
+                observed.add(observation);
+            }
+
+            @Override
+            public void onCalibrationEvent(CalibrationEvent event) {
+                events.add(event);
+            }
+        };
+        PipelineEngine engine = builder(24).sink(new CollectingSink()).observer(observer)
+                .observationPolicy(ObservationPolicy.all()).calibrationSource(source).build();
+
+        Returns r = calmThenFused(60, 0, 4, 17L);
+        for (int t = 0; t < r.rows.length; t++) {
+            engine.onReturns(r.timestamps.get(t), r.rows[t]);
+            // 60 bars, window 12 → 49 window-points; point p lands after bar index WINDOW − 2 + p.
+            // 1 NaN gap + 6 admitted = ready on point 7, i.e. after bar index WINDOW + 5.
+            if (t < WINDOW + 5) {
+                assertFalse(engine.isCalibrated(), "CALIBRATING until K admitted bars, bar " + t);
+            }
+        }
+
+        assertTrue(engine.isCalibrated());
+        assertEquals(1, events.size(), "one bounded promotion event");
+        assertEquals(CalibrationEventKind.PROMOTED_TO_LIVE, events.get(0).kind());
+        assertEquals(42L, engine.summary().detectionPoints(),
+                "49 window-points − 1 gap − 6 warm-up − 1 prime = 42 scored transitions");
+        assertEquals(42, observed.size());
     }
 
     @Test

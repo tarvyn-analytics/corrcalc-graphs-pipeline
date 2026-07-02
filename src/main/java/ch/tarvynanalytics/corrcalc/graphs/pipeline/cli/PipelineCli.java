@@ -282,12 +282,15 @@ public final class PipelineCli {
                   --universe <path>           symbol-list CSV (default: <data-dir>/<event>_universe.csv)
                   --from <YYYY-MM-DD>          earliest UTC bar date to keep
                   --to <YYYY-MM-DD>           latest UTC bar date to keep
-                  --calibration leading-warmup|calm-block
+                  --calibration leading-warmup|calm-block|adaptive
                                               how the detector is calibrated: the pragmatic leading
-                                              prefix (default), or primed from a persisted walk-forward
-                                              artifact so detection starts on the first snapshot
+                                              prefix (default); primed from a persisted walk-forward
+                                              artifact so detection starts on the first snapshot; or
+                                              the adaptive online walk-forward (quietness gate +
+                                              robust estimator + drift meta-monitor opening epochs)
                   --calibration-artifact <path>
-                                              the artifact JSON a calm-block run primes from
+                                              the artifact JSON: the calm-block baseline (required),
+                                              or an adaptive run's operator-vouched prior (optional)
                   --save-calibration <path>   persist this run's resulting calibration artifact
                   -v, --verbose               DEBUG logging
                   -h, --help                  this help

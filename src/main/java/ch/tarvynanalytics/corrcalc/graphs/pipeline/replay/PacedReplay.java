@@ -4,6 +4,7 @@ import ch.tarvynanalytics.corrcalc.graphs.pipeline.ObservationPolicy;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObserver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.RunContext;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.SignalSink;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.AdaptiveCalibrationConfig;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationArtifact;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSource;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSources;
@@ -146,21 +147,40 @@ public final class PacedReplay {
 
     /**
      * Builds the run's {@link CalibrationSource} from the requested mode: the leading-warmup prefix
-     * (the default), or a calm-block source primed from the persisted walk-forward artifact — which
-     * must match this run's market + timescale (an intraday artifact never calibrates a daily
-     * detector; never mix timescales).
+     * (the default), a calm-block source primed from the persisted walk-forward artifact, or the
+     * adaptive online source (optionally seeded from a prior artifact). A supplied artifact must
+     * match this run's market + timescale (an intraday artifact never calibrates a daily detector;
+     * never mix timescales).
      */
     private static CalibrationSource buildCalibrationSource(ReplayOptions opts, TimescaleConfig cfg,
                                                             int calmBars) {
-        if (!ReplayOptions.CALM_BLOCK.equals(opts.calibrationMode())) {
-            return CalibrationSources.leadingWarmup(calmBars, cfg.detector());
-        }
+        return switch (opts.calibrationMode()) {
+            case ReplayOptions.CALM_BLOCK -> CalibrationSources.calmBlock(loadArtifact(opts));
+            case ReplayOptions.ADAPTIVE -> CalibrationSources.adaptive(
+                    adaptiveConfigFor(opts.timescale()), cfg.detector(),
+                    opts.calibrationArtifact() == null ? null : loadArtifact(opts));
+            default -> CalibrationSources.leadingWarmup(calmBars, cfg.detector());
+        };
+    }
+
+    /** Loads the run's artifact and rejects a market/timescale mismatch. */
+    private static CalibrationArtifact loadArtifact(ReplayOptions opts) {
         CalibrationArtifact artifact = CalibrationSources.load(opts.calibrationArtifact());
         if (!artifact.market().equals(opts.market()) || !artifact.timescale().equals(opts.timescale())) {
             throw new IllegalArgumentException("calibration artifact is for [" + artifact.market() + "/"
                     + artifact.timescale() + "], this run is [" + opts.market() + "/" + opts.timescale() + "]");
         }
-        return CalibrationSources.calmBlock(artifact);
+        return artifact;
+    }
+
+    /**
+     * The adaptive tuning for this run's timescale — market config, not code (the market itself is
+     * validated in {@link #resolveConfig}; crypto is the only wired market today).
+     */
+    private static AdaptiveCalibrationConfig adaptiveConfigFor(String timescale) {
+        return DAILY.equals(timescale)
+                ? AdaptiveCalibrationConfig.cryptoDaily()
+                : AdaptiveCalibrationConfig.cryptoIntraday();
     }
 
     /** Persists the run's resulting calibration when asked ({@code --save-calibration}) and calibrated. */

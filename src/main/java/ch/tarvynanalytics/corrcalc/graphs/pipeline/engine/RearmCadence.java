@@ -19,11 +19,27 @@ import ch.tarvynanalytics.graphs.algos.model.FireDirection;
  */
 final class RearmCadence {
 
+    /** How a scored signal moved the cadence — what kind of re-arm (if any) this bar decided. */
+    enum Rearm {
+        /** No re-arm this bar. */
+        NONE,
+        /** The regime question resolved on its own evidence (all-clear + cool-down, or relaxation). */
+        RESOLVED,
+        /**
+         * The calendar backstop expired an unresolved question: the aftermath never returned to the
+         * old calm. The engine must let the calibration re-baseline — the freeze protected a
+         * <em>pending</em> question, and an expired-unresolved one is exactly the sustained new
+         * regime the starvation timeout re-baselines on (otherwise the stale frozen baseline
+         * re-fires on the elevated structure every {@code calendarRearmBars}: a fire metronome).
+         */
+        EXPIRED
+    }
+
     private final RearmConfig config;
     private final boolean defusionEnabled;
     private final FireArm fireArm;
     private final double h;
-    private final double levelGate;
+    private double levelGate;   // refreshed when an adaptive epoch recalibrates the detector
 
     private long windowId;
     private boolean awaitingRearm;   // a fusion fired; the debounce is latched until a trigger resolves it
@@ -52,6 +68,27 @@ final class RearmCadence {
         return windowId;
     }
 
+    /**
+     * Whether a fusion fired and its regime question is still unresolved (no all-clear/relaxation/
+     * backstop re-arm yet). While this holds, the adaptive calibration must stay frozen: the
+     * pending all-clear is a question asked against the baseline that fired, and re-baselining
+     * mid-question moves the goalposts (the gauge band would re-derive from the post-event
+     * structure, trivially satisfying the recovery it is supposed to measure).
+     */
+    boolean awaitingRearm() {
+        return awaitingRearm;
+    }
+
+    /**
+     * An adaptive calibration epoch re-derived the level gate: keep the relaxation rule's
+     * gate-closed test on the live {@code L}, matching the detector it re-arms.
+     *
+     * @param levelGate the new calm level gate
+     */
+    void recalibrated(double levelGate) {
+        this.levelGate = levelGate;
+    }
+
     /** How many re-arms this cadence has performed. */
     long rearms() {
         return windowId;
@@ -62,20 +99,21 @@ final class RearmCadence {
      * effect on the next {@link #windowId()}.
      *
      * @param signal the transition the detector just scored under the current window id
+     * @return what kind of re-arm (if any) this bar decided
      */
-    void observe(ChangeSignal signal) {
+    Rearm observe(ChangeSignal signal) {
         if (!config.enabled()) {
-            return;
+            return Rearm.NONE;
         }
         if (signal.fireDirection() == FireDirection.FUSION) {
             awaitingRearm = true;
             barsSinceFire = 0;
             relaxSustained = 0;
             coolDownRemaining = -1;
-            return;   // the fire bar itself feeds no trigger
+            return Rearm.NONE;   // the fire bar itself feeds no trigger
         }
         if (!awaitingRearm) {
-            return;   // pure calm: no free-running re-arm clock (the FA-safety guard)
+            return Rearm.NONE;   // pure calm: no free-running re-arm clock (the FA-safety guard)
         }
         barsSinceFire++;
         if (defusionEnabled) {
@@ -84,18 +122,20 @@ final class RearmCadence {
             }
             if (coolDownRemaining >= 0 && coolDownRemaining-- == 0) {
                 rearm();
-                return;
+                return Rearm.RESOLVED;
             }
         } else if (config.relaxSustainBars() > 0) {
             relaxSustained = relaxedGateClosed(signal) ? relaxSustained + 1 : 0;
             if (relaxSustained >= config.relaxSustainBars()) {
                 rearm();
-                return;
+                return Rearm.RESOLVED;
             }
         }
         if (config.calendarRearmBars() > 0 && barsSinceFire >= config.calendarRearmBars()) {
             rearm();
+            return Rearm.EXPIRED;
         }
+        return Rearm.NONE;
     }
 
     /** The per-bar relaxation condition: the firing arm has drained AND density left the fired band. */
