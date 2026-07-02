@@ -54,7 +54,7 @@ class ThinningObserverTest {
             }
         };
         ThinningObserver thin = new ThinningObserver(delegate, 3);
-        RunContext ctx = new RunContext("crypto", "daily", "replay", "leading-warmup",
+        RunContext ctx = new RunContext("crypto", "daily", "replay", new ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationProvenance("leading-warmup", 0L, null, null),
                 14, 0.5, 1.5, 8.0, 99.0, "UPPER", 18, 60.0);
 
         thin.onStart(ctx);

@@ -92,6 +92,9 @@ public final class PipelineCli {
         String observe = "all";
         String style = "technical";
         boolean verbose = false;
+        String calibration = "leading-warmup";
+        String calibrationArtifact = null;
+        String saveCalibration = null;
 
         for (int i = 1; i < args.length; i++) {
             String a = args[i];
@@ -114,6 +117,9 @@ public final class PipelineCli {
                 case "--universe" -> universe = value(args, ++i, a);
                 case "--from" -> from = value(args, ++i, a);
                 case "--to" -> to = value(args, ++i, a);
+                case "--calibration" -> calibration = value(args, ++i, a);
+                case "--calibration-artifact" -> calibrationArtifact = value(args, ++i, a);
+                case "--save-calibration" -> saveCalibration = value(args, ++i, a);
                 default -> {
                     if (a.startsWith("-")) {
                         throw new UsageException("unknown option [" + a + "]");
@@ -147,7 +153,9 @@ public final class PipelineCli {
 
         ReplayOptions opts = new ReplayOptions(event, market, timescale, speed, maxStepMs, calmBars,
                 limit, heartbeatEvery, universe == null ? null : Path.of(universe),
-                parseDate(from, "--from"), parseDate(to, "--to"));
+                parseDate(from, "--from"), parseDate(to, "--to"),
+                calibration, calibrationArtifact == null ? null : Path.of(calibrationArtifact),
+                saveCalibration == null ? null : Path.of(saveCalibration));
 
         ObservationPolicy policy = parseObserve(observe);
         // Fires go to the product sink (loud WARN banner); the full transition series goes to the
@@ -274,6 +282,13 @@ public final class PipelineCli {
                   --universe <path>           symbol-list CSV (default: <data-dir>/<event>_universe.csv)
                   --from <YYYY-MM-DD>          earliest UTC bar date to keep
                   --to <YYYY-MM-DD>           latest UTC bar date to keep
+                  --calibration leading-warmup|calm-block
+                                              how the detector is calibrated: the pragmatic leading
+                                              prefix (default), or primed from a persisted walk-forward
+                                              artifact so detection starts on the first snapshot
+                  --calibration-artifact <path>
+                                              the artifact JSON a calm-block run primes from
+                  --save-calibration <path>   persist this run's resulting calibration artifact
                   -v, --verbose               DEBUG logging
                   -h, --help                  this help
 

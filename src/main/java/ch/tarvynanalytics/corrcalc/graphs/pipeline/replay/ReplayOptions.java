@@ -21,6 +21,13 @@ import java.time.LocalDate;
  * @param universePath   explicit universe CSV, or {@code null} to default to {@code <dir>/<event>_universe.csv}
  * @param from           earliest UTC bar date to keep (inclusive), or {@code null} for no lower bound
  * @param to             latest UTC bar date to keep (inclusive), or {@code null} for no upper bound
+ * @param calibrationMode     how the detector is calibrated: {@code "leading-warmup"} (the pragmatic
+ *                            leading prefix, the default) or {@code "calm-block"} (primed from a
+ *                            persisted walk-forward artifact — requires {@code calibrationArtifact})
+ * @param calibrationArtifact the persisted {@code CalibrationArtifact} JSON a calm-block run primes
+ *                            from, or {@code null} (required iff {@code calm-block})
+ * @param saveCalibration     where to persist the run's resulting calibration artifact, or
+ *                            {@code null} to not save
  */
 public record ReplayOptions(
         String event,
@@ -33,7 +40,15 @@ public record ReplayOptions(
         int heartbeatEvery,
         Path universePath,
         LocalDate from,
-        LocalDate to) {
+        LocalDate to,
+        String calibrationMode,
+        Path calibrationArtifact,
+        Path saveCalibration) {
+
+    /** The calibration-mode labels this replay understands (adaptive arrives with H2 PR-5). */
+    public static final String LEADING_WARMUP = "leading-warmup";
+    /** The walk-forward calm-block mode label. */
+    public static final String CALM_BLOCK = "calm-block";
 
     /** Validates the knobs, throwing {@link IllegalArgumentException} with the offending value bracketed. */
     public ReplayOptions {
@@ -60,6 +75,18 @@ public record ReplayOptions(
         }
         if (heartbeatEvery < 1) {
             throw new IllegalArgumentException("heartbeatEvery must be >= 1 [" + heartbeatEvery + "]");
+        }
+        if (!LEADING_WARMUP.equals(calibrationMode) && !CALM_BLOCK.equals(calibrationMode)) {
+            throw new IllegalArgumentException("calibrationMode must be " + LEADING_WARMUP + " or "
+                    + CALM_BLOCK + " [" + calibrationMode + "]");
+        }
+        if (CALM_BLOCK.equals(calibrationMode) && calibrationArtifact == null) {
+            throw new IllegalArgumentException(
+                    "calm-block calibration requires a calibration artifact [null]");
+        }
+        if (LEADING_WARMUP.equals(calibrationMode) && calibrationArtifact != null) {
+            throw new IllegalArgumentException("a calibration artifact is only read under calm-block; "
+                    + "mode is [" + calibrationMode + "]");
         }
     }
 }

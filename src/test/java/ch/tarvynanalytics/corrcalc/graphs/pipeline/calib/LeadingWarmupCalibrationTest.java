@@ -55,6 +55,32 @@ class LeadingWarmupCalibrationTest {
     }
 
     @Test
+    void provenance_TracksTheObservedWindow() {
+        CalibrationSource source = CalibrationSources.leadingWarmup(2, CONFIG);
+        assertEquals(new CalibrationProvenance("leading-warmup", 0L, null, null), source.provenance(),
+                "the window is unknown before any observation");
+        source.observe(T0, Double.NaN, 0.30);
+        source.observe(T0.plusSeconds(60), 0.02, 0.35);
+        assertEquals(new CalibrationProvenance("leading-warmup", 0L, T0, T0.plusSeconds(60)),
+                source.provenance());
+    }
+
+    @Test
+    void artifact_CarriesTheCalibrationAndTheSourceWindow() {
+        CalibrationSource source = CalibrationSources.leadingWarmup(2, CONFIG);
+        source.observe(T0, Double.NaN, 0.30);
+        source.observe(T0.plusSeconds(60), 0.02, 0.35);
+        CalibrationArtifact artifact = source.artifact("crypto", "intraday");
+        assertEquals(CalibrationArtifact.SCHEMA_VERSION, artifact.schemaVersion());
+        assertEquals("crypto", artifact.market());
+        assertEquals(0L, artifact.epochId());
+        assertEquals(T0, artifact.sourceFrom());
+        assertEquals(T0.plusSeconds(60), artifact.sourceTo());
+        assertEquals(2, artifact.sourceSamples());
+        assertEquals(source.calibration(), artifact.calibration());
+    }
+
+    @Test
     void leadingWarmup_CalmBarsBelowTwo_Throws() {
         assertThrows(IllegalArgumentException.class, () -> CalibrationSources.leadingWarmup(1, CONFIG));
     }
