@@ -40,4 +40,36 @@ class IterableMarketDataSourceTest {
         assertThrows(IllegalArgumentException.class, () -> new IterableMarketDataSource(new String[0], List.of()));
         assertThrows(IllegalArgumentException.class, () -> new IterableMarketDataSource(UNIVERSE, null));
     }
+
+    @Test
+    void close_ForwardsToACloseableIterator_SoAStreamingSourceReleasesItsFiles() {
+        boolean[] closed = {false};
+        final class CloseableIterator implements java.util.Iterator<MarketSnapshot>, AutoCloseable {
+            @Override
+            public boolean hasNext() {
+                return false;
+            }
+
+            @Override
+            public MarketSnapshot next() {
+                throw new java.util.NoSuchElementException();
+            }
+
+            @Override
+            public void close() {
+                closed[0] = true;
+            }
+        }
+        MarketDataSource source = new IterableMarketDataSource(UNIVERSE, CloseableIterator::new);
+
+        source.close();
+
+        assertTrue(closed[0], "close() must reach the underlying iterator");
+    }
+
+    @Test
+    void close_PlainInMemoryIterator_IsANoOp() {
+        MarketDataSource source = new IterableMarketDataSource(UNIVERSE, List.of());
+        source.close();   // must not throw
+    }
 }

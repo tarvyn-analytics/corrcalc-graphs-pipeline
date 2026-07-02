@@ -39,4 +39,16 @@ public final class IterableMarketDataSource implements MarketDataSource {
     public Optional<MarketSnapshot> poll() {
         return snapshots.hasNext() ? Optional.of(snapshots.next()) : Optional.empty();
     }
+
+    /** Closes the underlying iterator when it holds resources (a streaming file-backed sequence). */
+    @Override
+    public void close() {
+        if (snapshots instanceof AutoCloseable closeable) {
+            try {
+                closeable.close();
+            } catch (Exception e) {
+                throw new IllegalStateException("failed to close the snapshot stream", e);
+            }
+        }
+    }
 }

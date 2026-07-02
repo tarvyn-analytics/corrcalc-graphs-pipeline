@@ -89,7 +89,7 @@ public final class ReturnBuilder {
      * @param policy    the session policy
      * @return the number of return bars the stream would yield
      */
-    public static int countReturns(List<MarketSnapshot> snapshots, SessionPolicy policy) {
+    public static int countReturns(Iterable<MarketSnapshot> snapshots, SessionPolicy policy) {
         if (snapshots == null || policy == null) {
             throw new IllegalArgumentException("snapshots and policy must not be null");
         }

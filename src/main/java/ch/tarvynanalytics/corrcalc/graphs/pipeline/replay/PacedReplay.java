@@ -8,12 +8,10 @@ import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.AdaptiveCalibrationConf
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationArtifact;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSource;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSources;
-import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.Bar;
-import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.PriceBars;
-import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.PriceSnapshots;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.ReturnBuilder;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.ReturnPanel;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.SessionPolicy;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.StreamingPriceSnapshots;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.UniverseCsv;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.TimescaleConfig;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.engine.PipelineDriver;
@@ -28,15 +26,14 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 /**
  * The live, wall-clock-paced replay <em>driver</em> — the visualization counterpart to the batch
- * {@code backtest} scorer. It loads one timescale's stored bars, aligns them into
- * {@link MarketSnapshot}s, and replays them through the real inbound seam:
+ * {@code backtest} scorer. It streams one timescale's stored bars, lazily aligned into
+ * {@link MarketSnapshot}s ({@link StreamingPriceSnapshots} — constant memory in the series length),
+ * and replays them through the real inbound seam:
  * {@code IterableMarketDataSource → ReturnBuilder → PipelineEngine}, driven by {@link PipelineDriver}
  * and paced by a {@link ReplayClock}. Stored bars are simply a {@link MarketDataSource}, so replay and a
  * future live feed differ only in the source and the pace.
@@ -77,8 +74,10 @@ public final class PacedReplay {
         TimescaleConfig cfg = resolveConfig(opts.market(), opts.timescale());
         SessionPolicy sessionPolicy = sessionPolicyFor(opts.timescale());
         String[] symbols = loadUniverse(dataDir, opts);
-        Map<String, List<Bar>> prices = loadPrices(dataDir, opts, freqFor(opts.timescale()), symbols);
-        List<MarketSnapshot> snapshots = PriceSnapshots.align(prices, symbols);
+        // Streamed, never materialized: the aligner re-reads the files per pass (a counting pre-pass,
+        // then the replay), so a multi-year minute tape runs in constant memory.
+        Iterable<MarketSnapshot> snapshots = StreamingPriceSnapshots.align(dataDir, opts.event(),
+                freqFor(opts.timescale()), opts.from(), opts.to(), symbols);
 
         int returnBars = ReturnBuilder.countReturns(snapshots, sessionPolicy);
         int expectedPoints = validateExpectedPoints(returnBars, cfg.window());
@@ -90,9 +89,11 @@ public final class PacedReplay {
         logStart(opts, returnBars, expectedPoints, cfg, calmBars, clock.speed());
         observer.onStart(runContext(opts, cfg, calmBars, clock.speed(), calibrationSource));
 
-        MarketDataSource source = new IterableMarketDataSource(symbols, snapshots);
-        ReturnBuilder builder = new ReturnBuilder(symbols, sessionPolicy);
-        RunSummary summary = PipelineDriver.run(source, builder, engine, clock);
+        RunSummary summary;
+        try (MarketDataSource source = new IterableMarketDataSource(symbols, snapshots)) {
+            ReturnBuilder builder = new ReturnBuilder(symbols, sessionPolicy);
+            summary = PipelineDriver.run(source, builder, engine, clock);
+        }
         logDone(summary);
         observer.onComplete(summary);
         saveCalibration(opts, engine, calibrationSource);
@@ -232,16 +233,6 @@ public final class PacedReplay {
                 ? opts.universePath()
                 : dataDir.resolve(opts.event() + "_universe.csv");
         return UniverseCsv.read(universePath).toArray(new String[0]);
-    }
-
-    private static Map<String, List<Bar>> loadPrices(Path dataDir, ReplayOptions opts, String freq,
-                                                     String[] symbols) {
-        Map<String, List<Bar>> prices = new LinkedHashMap<>();
-        for (String symbol : symbols) {
-            Path csv = dataDir.resolve(symbol + "_" + freq + "_" + opts.event() + ".csv");
-            prices.put(symbol, PriceBars.read(csv, opts.from(), opts.to()));
-        }
-        return prices;
     }
 
     private static int validateExpectedPoints(int returnBars, int window) {
