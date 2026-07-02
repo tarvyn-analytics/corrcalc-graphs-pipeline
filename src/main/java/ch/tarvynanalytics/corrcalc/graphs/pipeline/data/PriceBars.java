@@ -63,7 +63,8 @@ public final class PriceBars {
         return bars;
     }
 
-    private static Bar parse(String line, Path csv, int lineNo) {
+    /** Parses one {@code timestamp,open,high,low,close,volume} data row (shared with the streaming cursor). */
+    static Bar parse(String line, Path csv, int lineNo) {
         // timestamp,open,high,low,close,volume -- close is field index 4.
         int field = 0;
         int start = 0;
