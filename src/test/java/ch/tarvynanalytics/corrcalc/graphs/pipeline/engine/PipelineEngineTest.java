@@ -147,6 +147,46 @@ class PipelineEngineTest {
     }
 
     @Test
+    void calibrationSource_ReadyImmediately_CalibratesOnTheFirstSnapshotAndScoresTheRest() {
+        // A walk-forward-style source (ready before the stream, e.g. from a calm-block artifact)
+        // must prime the detector on the FIRST window-fill snapshot, so every later snapshot is a
+        // scored transition — the seam PR-3's calm-block mode plugs into.
+        ch.tarvynanalytics.graphs.algos.Calibration external =
+                new ch.tarvynanalytics.graphs.algos.Calibration(0.01, 0.02, 0.9, 0.3, 0.05);
+        ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSource ready =
+                new ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSource() {
+                    @Override
+                    public void observe(Instant asOf, double weightedChange, double density) {
+                        // an externally-calibrated source ignores the stream
+                    }
+
+                    @Override
+                    public boolean isReady() {
+                        return true;
+                    }
+
+                    @Override
+                    public ch.tarvynanalytics.graphs.algos.Calibration calibration() {
+                        return external;
+                    }
+                };
+        PipelineEngine engine = builder(24).sink(new CollectingSink()).calibrationSource(ready).build();
+
+        Returns r = calmThenFused(WINDOW + 5, 0, 4, 11L);
+        for (int t = 0; t < WINDOW; t++) {
+            engine.onReturns(r.timestamps.get(t), r.rows[t]);
+        }
+        assertTrue(engine.isCalibrated(), "ready source calibrates on the first window-fill snapshot");
+        assertEquals(external, engine.calibration().orElseThrow());
+        assertEquals(0L, engine.summary().detectionPoints(), "the first snapshot primes, not scores");
+
+        for (int t = WINDOW; t < r.rows.length; t++) {
+            engine.onReturns(r.timestamps.get(t), r.rows[t]);
+        }
+        assertEquals(5L, engine.summary().detectionPoints(), "every post-prime snapshot is scored");
+    }
+
+    @Test
     void build_RejectsBadCalmBarsAndMissingSink() {
         assertThrows(IllegalArgumentException.class, () -> builder(1).sink(new CollectingSink()).build());
         assertThrows(IllegalArgumentException.class, () -> PipelineEngine.builder(syms(4), CFG).calmBars(10).build());
