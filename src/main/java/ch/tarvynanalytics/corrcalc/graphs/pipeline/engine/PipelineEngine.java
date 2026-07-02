@@ -292,6 +292,7 @@ public final class PipelineEngine {
         private double[][] prev;
         private double[][] detectPrev;
         private ChangeDetector detector;
+        private RearmCadence rearm;
         private Calibration calibrationResult;
         private int calmBarsSeen;
         private long detectionPoints;
@@ -334,7 +335,11 @@ public final class PipelineEngine {
             if (calibrationSource.isReady()) {
                 calibrationResult = calibrationSource.calibration();
                 detector = ChangeDetectors.create(order, cfg.detector(), calibrationResult);
-                detector.onMatrix(current);   // prime the predecessor; first call yields no transition
+                // The continuous-stream re-arm cadence (H2 Q4): every onMatrix is windowed; the cadence
+                // advances the id once per resolved regime event (all-clear / relaxation / backstop).
+                rearm = new RearmCadence(cfg.rearm(), cfg.detector().defusion().enabled(),
+                        cfg.detector().fireArm(), cfg.detector().h(), calibrationResult.level());
+                detector.onMatrix(current, rearm.windowId());   // prime the predecessor; no transition
                 detectPrev = current;         // mirror the detector's predecessor for contributor attribution
                 LOG.info("calibrated on {} calm points: mu={} sigma={} L={} -- detecting...",
                         calmBarsSeen, fmt(calibrationResult.mu(), 4), fmt(calibrationResult.sigma(), 4),
@@ -343,11 +348,12 @@ public final class PipelineEngine {
         }
 
         private void detect(Instant asOf, double[][] current) {
-            ChangeSignal sig = detector.onMatrix(current);
+            ChangeSignal sig = detector.onMatrix(current, rearm.windowId());
             if (sig == null) {
                 detectPrev = current;   // first matrix after a session-boundary re-prime: no transition
                 return;
             }
+            rearm.observe(sig);
             detectionPoints++;
             List<PairContribution> contributors = contributors(detectPrev, current);
             detectPrev = current;
@@ -392,6 +398,7 @@ public final class PipelineEngine {
         void onSessionBoundary() {
             if (detector != null) {
                 detector.onSessionBoundary();
+                rearm.onSessionBoundary();
             } else {
                 prev = null;   // drop the calibration predecessor so no change spans the gap
             }
