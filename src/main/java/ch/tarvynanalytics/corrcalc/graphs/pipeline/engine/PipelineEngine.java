@@ -14,6 +14,8 @@ import ch.tarvynanalytics.graphs.algos.model.FireDirection;
 import ch.tarvynanalytics.graphs.algos.model.PairChange;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.ObservationPolicy;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PairContribution;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSource;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSources;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObservation;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObserver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.SignalFilter;
@@ -40,8 +42,9 @@ import java.util.Optional;
  *
  * <ol>
  *   <li>the S1 {@link RollingCorrelationEngine} (one timescale), fed one return bar per {@link #onReturns};</li>
- *   <li>the in-stream calibration boundary: the first {@code calmBars} window-points calibrate the S3
- *       detector ({@link ChangeDetectors#calibrate}), then it is created and primed;</li>
+ *   <li>the in-stream calibration boundary: pre-detection window-points feed the run's
+ *       {@link CalibrationSource} (default: the leading-warmup prefix over {@code calmBars} points);
+ *       once the source is ready the S3 detector is created from its {@link Calibration} and primed;</li>
  *   <li>per transition after calibration: the product fire-stream — a fired transition becomes a
  *       {@link StructuralSignal} through the {@link SignalPublisher} ({@code SignalFilter → SignalSink});
  *       and the observation seam — every transition becomes a {@link PipelineObservation} gated by the
@@ -128,14 +131,6 @@ public final class PipelineEngine {
         return out;
     }
 
-    private static double[] toArray(List<Double> values) {
-        double[] out = new double[values.size()];
-        for (int i = 0; i < out.length; i++) {
-            out[i] = values.get(i);
-        }
-        return out;
-    }
-
     /**
      * Maps the S3 detector's fire direction to the pipeline {@link SignalKind}. A de-fusion fire is a
      * {@link SignalKind#DEFUSION} all-clear; every other fire (the proven exit alarm) is a
@@ -169,6 +164,7 @@ public final class PipelineEngine {
         private ObservationPolicy policy = ObservationPolicy.all();
         private Integer limit;
         private int contributorsTopK = 3;
+        private CalibrationSource calibrationSource;
 
         private Builder(String[] symbols, TimescaleConfig cfg) {
             if (symbols == null || symbols.length == 0) {
@@ -247,6 +243,20 @@ public final class PipelineEngine {
             return this;
         }
 
+        /**
+         * The run's calibration source (default: {@link CalibrationSources#leadingWarmup} over
+         * {@code calmBars} window-points — the engine's original behaviour). The seam the walk-forward
+         * calm-block and adaptive modes plug into (H2 design §3.2); it lives on the engine, not on a
+         * driver, so replay and live exercise the identical calibration lifecycle.
+         *
+         * @param source the source, or {@code null} to keep the leading-warmup default
+         * @return this builder
+         */
+        public Builder calibrationSource(CalibrationSource source) {
+            this.calibrationSource = source;
+            return this;
+        }
+
         /** Builds the engine, validating the required knobs. */
         public PipelineEngine build() {
             if (calmBars < 2) {
@@ -254,6 +264,9 @@ public final class PipelineEngine {
             }
             if (publisher == null) {
                 throw new IllegalArgumentException("a fire sink/publisher is required (call sink(..) or publisher(..))");
+            }
+            if (calibrationSource == null) {
+                calibrationSource = CalibrationSources.leadingWarmup(calmBars, cfg.detector());
             }
             return new PipelineEngine(this);
         }
@@ -274,14 +287,13 @@ public final class PipelineEngine {
         private final Integer limit;
         private final int contributorsTopK;
         private final List<String> universe;
+        private final CalibrationSource calibrationSource;
 
-        private final List<Double> calmChange = new ArrayList<>();
-        private final List<Double> calmDensity = new ArrayList<>();
         private double[][] prev;
         private double[][] detectPrev;
         private ChangeDetector detector;
         private Calibration calibrationResult;
-        private int calmIdx;
+        private int calmBarsSeen;
         private long detectionPoints;
         private long fires;
         private long published;
@@ -301,6 +313,7 @@ public final class PipelineEngine {
             this.limit = b.limit;
             this.contributorsTopK = b.contributorsTopK;
             this.universe = List.of(b.symbols);
+            this.calibrationSource = b.calibrationSource;
         }
 
         @Override
@@ -315,17 +328,16 @@ public final class PipelineEngine {
 
         private void calibrate(Instant asOf, double[][] current) {
             ChangeMetrics m = ChangeMetricsAnalyzer.analyze(prev == null ? current : prev, current, tau);
-            calmDensity.add(m.densityLevel());
-            calmChange.add(prev == null ? Double.NaN : m.weightedChange());
+            calibrationSource.observe(asOf, prev == null ? Double.NaN : m.weightedChange(), m.densityLevel());
             prev = current;
-            calmIdx++;
-            if (calmIdx >= calmBars) {
-                calibrationResult = ChangeDetectors.calibrate(toArray(calmChange), toArray(calmDensity), cfg.detector());
+            calmBarsSeen++;
+            if (calibrationSource.isReady()) {
+                calibrationResult = calibrationSource.calibration();
                 detector = ChangeDetectors.create(order, cfg.detector(), calibrationResult);
                 detector.onMatrix(current);   // prime the predecessor; first call yields no transition
                 detectPrev = current;         // mirror the detector's predecessor for contributor attribution
                 LOG.info("calibrated on {} calm points: mu={} sigma={} L={} -- detecting...",
-                        calmBars, fmt(calibrationResult.mu(), 4), fmt(calibrationResult.sigma(), 4),
+                        calmBarsSeen, fmt(calibrationResult.mu(), 4), fmt(calibrationResult.sigma(), 4),
                         fmt(calibrationResult.level(), 3));
             }
         }
