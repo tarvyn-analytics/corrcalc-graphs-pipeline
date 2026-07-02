@@ -12,6 +12,9 @@ import ch.tarvynanalytics.graphs.algos.model.ChangeMetrics;
 import ch.tarvynanalytics.graphs.algos.model.ChangeSignal;
 import ch.tarvynanalytics.graphs.algos.model.FireDirection;
 import ch.tarvynanalytics.graphs.algos.model.PairChange;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.CalibrationEvent;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.CalibrationEventKind;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.DetectorState;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.ObservationPolicy;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PairContribution;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSource;
@@ -341,6 +344,7 @@ public final class PipelineEngine {
                         cfg.detector().fireArm(), cfg.detector().h(), calibrationResult.level());
                 detector.onMatrix(current, rearm.windowId());   // prime the predecessor; no transition
                 detectPrev = current;         // mirror the detector's predecessor for contributor attribution
+                drainCalibrationEvents(false);   // forward a cold-start PROMOTED_TO_LIVE, if queued
                 LOG.info("calibrated on {} calm points: mu={} sigma={} L={} -- detecting...",
                         calmBarsSeen, fmt(calibrationResult.mu(), 4), fmt(calibrationResult.sigma(), 4),
                         fmt(calibrationResult.level(), 3));
@@ -353,7 +357,7 @@ public final class PipelineEngine {
                 detectPrev = current;   // first matrix after a session-boundary re-prime: no transition
                 return;
             }
-            rearm.observe(sig);
+            RearmCadence.Rearm rearmed = rearm.observe(sig);
             detectionPoints++;
             List<PairContribution> contributors = contributors(detectPrev, current);
             detectPrev = current;
@@ -361,20 +365,69 @@ public final class PipelineEngine {
             PipelineObservation obs = new PipelineObservation(asOf, market, timescale, sig.metrics(),
                     sig.sPlus(), sig.sMinus(), sig.recoveryGauge(), sig.fired(), kind, cfg.detector().h(),
                     calibrationResult.mu(), calibrationResult.sigma(), calibrationResult.level(), contributors);
+            // The online half of the calibration seam: the adaptive source learns from every scored
+            // transition (frozen sources no-op). The freeze condition is the in-fire state PLUS the
+            // whole fused-awaiting-re-arm span — the baseline may not move while an all-clear is
+            // still pending against it (numerics spec Q2 amendment; the may2021 suppression guard).
+            boolean freeze = obs.lifecycle() != DetectorState.ARMED || rearm.awaitingRearm();
+            calibrationSource.observeDetection(asOf, sig.metrics().weightedChange(),
+                    sig.metrics().densityLevel(), freeze);
+            if (rearmed == RearmCadence.Rearm.EXPIRED) {
+                // The backstop expired an unresolved question: the freeze protected a PENDING
+                // all-clear; expiry ends it, so the adaptive source re-baselines and re-warms
+                // (numerics spec Q4.1 amendment — otherwise the stale frozen baseline re-fires
+                // on the elevated structure every backstop period). The detector-side question
+                // state must close with it: recalibrate deliberately keeps the wasFused latch and
+                // gauge, so without the boundary reset the expired question could still sound a
+                // LATE all-clear against a re-derived band — the moved-goalposts leak again.
+                detector.onSessionBoundary();
+                detectPrev = null;   // the boundary drops the predecessor: the next matrix re-primes
+                calibrationSource.onRegimeExpired(asOf);
+            }
+            drainCalibrationEvents(true);
             if (policy.emit(obs)) {
                 observer.onObservation(obs);
                 observationsEmitted++;
             }
             if (sig.fired()) {
                 fires++;
-                StructuralSignal signal = StructuralSignals.fromChangeSignal(
-                        sig, asOf, market, timescale, universe, kind, null);
-                if (publisher.publish(signal).isPresent()) {
-                    published++;
+                // A demoted source (post-timeout re-warm-up) does not vouch for alerts: the raw fact
+                // stays on the observation stream, but nothing reaches the product fire-stream.
+                if (calibrationSource.live()) {
+                    StructuralSignal signal = StructuralSignals.fromChangeSignal(
+                            sig, asOf, market, timescale, universe, kind, null);
+                    if (publisher.publish(signal).isPresent()) {
+                        published++;
+                    }
                 }
             }
             if (limit != null && detectionPoints >= limit) {
                 stop = true;
+            }
+        }
+
+        /**
+         * Forwards every pending calibration-lifecycle event to the observer and, when the event
+         * re-baselined the source ({@code RECALIBRATED}/{@code EPOCH_OPENED}/{@code REGIME_TIMEOUT}/a
+         * re-promotion), installs the fresh calibration on the running detector — a controlled
+         * rebuild through the lib's {@code recalibrate}, arms reset, matrix/latch/gauge preserved
+         * (numerics spec Q1). A demotion event carries no new baseline, so it is forwarded only.
+         *
+         * @param recalibrate whether a running detector exists to re-baseline (false during the
+         *                    initial calibration hop, where the detector is built from scratch)
+         */
+        private void drainCalibrationEvents(boolean recalibrate) {
+            Optional<CalibrationEvent> pending;
+            while ((pending = calibrationSource.pollEvent()).isPresent()) {
+                CalibrationEvent event = pending.get();
+                if (recalibrate && event.kind() != CalibrationEventKind.DEMOTED_TO_CALIBRATING) {
+                    calibrationResult = calibrationSource.calibration();
+                    detector.recalibrate(calibrationResult);
+                    rearm.recalibrated(calibrationResult.level());
+                    LOG.info("calibration epoch {}: {} mu {} -> {}", event.epochId(), event.kind(),
+                            fmt(event.muBefore(), 4), fmt(event.muAfter(), 4));
+                }
+                observer.onCalibrationEvent(event);
             }
         }
 

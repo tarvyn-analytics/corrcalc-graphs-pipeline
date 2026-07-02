@@ -42,6 +42,24 @@ public final class CalibrationSources {
     }
 
     /**
+     * The adaptive source (H2 numerics spec Q2/Q3): the online walk-forward automation — a
+     * self-gating quietness rule admits calm bars to a robust median/MAD trailing estimator, a
+     * Page-Hinkley drift meta-monitor opens new calibration epochs through the detector's
+     * {@code recalibrate}, and the lifecycle is surfaced as bounded {@code CalibrationEvent}s.
+     *
+     * @param config         the adaptive tuning (per asset × timescale)
+     * @param detectorConfig the detector tuning supplying {@code epsilonSigma} + the level percentile
+     * @param prior          an operator-vouched artifact to start {@code LIVE} on immediately, or
+     *                       {@code null} for a cold start ({@code CALIBRATING} until the warm-up
+     *                       admits {@code warmupBars} clean bars)
+     * @return a new single-run source
+     */
+    public static CalibrationSource adaptive(AdaptiveCalibrationConfig config,
+                                             DetectorConfig detectorConfig, CalibrationArtifact prior) {
+        return new AdaptiveCalibration(config, detectorConfig, prior);
+    }
+
+    /**
      * Loads a persisted artifact ({@code --calibration-artifact}).
      *
      * @param json the artifact file

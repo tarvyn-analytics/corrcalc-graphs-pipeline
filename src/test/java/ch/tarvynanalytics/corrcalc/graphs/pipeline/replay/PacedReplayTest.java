@@ -4,12 +4,17 @@ import ch.tarvynanalytics.corrcalc.graphs.pipeline.CollectingSink;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.ObservationPolicy;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObserver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.SignalKind;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationArtifact;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSources;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.ReturnPanel;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.engine.RunSummary;
+import ch.tarvynanalytics.graphs.algos.Calibration;
 import ch.tarvynanalytics.graphs.algos.DetectorConfig;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.TimescaleConfig;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -72,9 +77,52 @@ class PacedReplayTest {
                 () -> PacedReplay.stream(panel, CFG, options(19), sink, PipelineObserver.noOp(), ObservationPolicy.all(), ReplayClock.noSleep()));
     }
 
+    @Test
+    void stream_AdaptiveWithPriorArtifact_StartsLiveAndFires(@TempDir Path work) {
+        // The adaptive product path seeded from an operator-vouched prior (spec 2.4): the source is
+        // LIVE from the first window-fill snapshot, so the fused block still fires — no leading
+        // accumulation, no start-point dependence.
+        Path artifactPath = work.resolve("prior.json");
+        Instant t0 = Instant.parse("2021-04-01T00:00:00Z");
+        CalibrationSources.save(new CalibrationArtifact(CalibrationArtifact.SCHEMA_VERSION,
+                "crypto", "intraday", 0L, t0, t0.plusSeconds(3600), 100,
+                new Calibration(0.01, 0.02, 0.9, 0.3, 0.05)), artifactPath);
+        ReturnPanel panel = panel(48, 24, 4, 42L);
+        CollectingSink sink = new CollectingSink();
+
+        RunSummary summary = PacedReplay.stream(panel, CFG,
+                options(null, ReplayOptions.ADAPTIVE, artifactPath), sink,
+                PipelineObserver.noOp(), ObservationPolicy.all(), ReplayClock.noSleep());
+
+        assertTrue(summary.detectionPoints() > 0, "a prior-seeded adaptive run scores immediately");
+        assertTrue(summary.fires() >= 1, "the fused block still fires under adaptive");
+        assertEquals(SignalKind.FUSION, sink.signals().get(0).kind());
+    }
+
+    @Test
+    void stream_AdaptiveColdStartOnAShortTape_StaysCalibratingAndScoresNothing() {
+        // Honesty guard: an un-seeded adaptive run needs warmupBars admitted points before it may
+        // score; a tape shorter than the warm-up completes with zero transitions and zero fires
+        // (CALIBRATING throughout) rather than a start-point-dependent quick look.
+        ReturnPanel panel = panel(160, 0, 4, 7L);
+        CollectingSink sink = new CollectingSink();
+
+        RunSummary summary = PacedReplay.stream(panel, CFG,
+                options(null, ReplayOptions.ADAPTIVE, null), sink,
+                PipelineObserver.noOp(), ObservationPolicy.all(), ReplayClock.noSleep());
+
+        assertEquals(0L, summary.detectionPoints(), "never promoted: nothing is scored");
+        assertEquals(0L, summary.fires());
+        assertEquals(0, sink.count());
+    }
+
     private static ReplayOptions options(Integer calmBars) {
+        return options(calmBars, "leading-warmup", null);
+    }
+
+    private static ReplayOptions options(Integer calmBars, String calibrationMode, Path artifact) {
         return new ReplayOptions("synthetic", "crypto", "intraday",
-                1000.0, 0L, calmBars, null, 1000, null, null, null, "leading-warmup", null, null);
+                1000.0, 0L, calmBars, null, 1000, null, null, null, calibrationMode, artifact, null);
     }
 
     private static ReturnPanel panel(int calmRows, int fusedRows, int symbols, long seed) {
