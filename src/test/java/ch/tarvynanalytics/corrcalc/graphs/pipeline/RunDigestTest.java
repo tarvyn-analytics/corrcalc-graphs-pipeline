@@ -98,4 +98,49 @@ class RunDigestTest {
         return new PipelineObservation(Instant.parse(asOf), "crypto", "intraday",
                 m, 0.0, 0.0, recoveryGauge, fired, kind, 8.0, 0.05, 0.02, 0.5, List.of());
     }
+
+    @Test
+    void addCalibrationEvent_CountsEpochOpensAndTheRecalibrationSubset() {
+        RunDigest d = new RunDigest();
+        d.addCalibrationEvent(event(CalibrationEventKind.RECALIBRATED, 1, 0.0100, 0.0132));
+        d.addCalibrationEvent(event(CalibrationEventKind.EPOCH_OPENED, 2, 0.0132, 0.0132));
+        d.addCalibrationEvent(event(CalibrationEventKind.REGIME_TIMEOUT, 3, 0.0132, 0.0200));
+
+        assertEquals(3, d.epochsOpened());
+        assertEquals(1, d.recalibrations());
+    }
+
+    @Test
+    void addCalibrationEvent_LifecycleTransitions_DoNotCountAsEpochOpens() {
+        RunDigest d = new RunDigest();
+        d.addCalibrationEvent(event(CalibrationEventKind.PROMOTED_TO_LIVE, 0, Double.NaN, 0.0500));
+        d.addCalibrationEvent(event(CalibrationEventKind.DEMOTED_TO_CALIBRATING, 0, 0.0500, 0.0500));
+
+        assertEquals(0, d.epochsOpened());
+        assertEquals(0, d.recalibrations());
+    }
+
+    @Test
+    void addCalibrationEvent_MuJourney_FirstBeforeToLatestAfter() {
+        RunDigest d = new RunDigest();
+        d.addCalibrationEvent(event(CalibrationEventKind.RECALIBRATED, 1, 0.0100, 0.0132));
+        d.addCalibrationEvent(event(CalibrationEventKind.RECALIBRATED, 2, 0.0132, 0.0140));
+
+        assertEquals(0.0100, d.muFirstBefore(), 1e-12);
+        assertEquals(0.0140, d.muLastAfter(), 1e-12);
+    }
+
+    @Test
+    void newDigest_NoCalibrationEvents_NaNJourneyAndZeroCounts() {
+        RunDigest d = new RunDigest();
+        assertEquals(0, d.epochsOpened());
+        assertEquals(0, d.recalibrations());
+        assertTrue(Double.isNaN(d.muFirstBefore()));
+        assertTrue(Double.isNaN(d.muLastAfter()));
+    }
+
+    private static CalibrationEvent event(CalibrationEventKind kind, long epochId, double muBefore, double muAfter) {
+        return new CalibrationEvent(kind, epochId, muBefore, muAfter, 0.0043, 0.0051,
+                Instant.parse("2021-05-19T13:00:00Z"));
+    }
 }

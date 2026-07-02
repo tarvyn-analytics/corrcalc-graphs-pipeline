@@ -85,4 +85,28 @@ class ThinningObserverTest {
         assertEquals(1, completed.size());
         assertEquals(summary, completed.get(0));
     }
+
+    @Test
+    void onCalibrationEvent_NeverThinned_EveryEventForwards() {
+        List<CalibrationEvent> received = new ArrayList<>();
+        PipelineObserver delegate = new PipelineObserver() {
+            @Override
+            public void onObservation(PipelineObservation observation) {
+                // not exercised here
+            }
+
+            @Override
+            public void onCalibrationEvent(CalibrationEvent event) {
+                received.add(event);
+            }
+        };
+        ThinningObserver thin = new ThinningObserver(delegate, 3);
+
+        for (int i = 0; i < 4; i++) {
+            thin.onCalibrationEvent(new CalibrationEvent(CalibrationEventKind.RECALIBRATED, i,
+                    0.01, 0.012, 0.004, 0.005, java.time.Instant.parse("2021-05-19T13:00:00Z")));
+        }
+
+        assertEquals(4, received.size(), "lifecycle events are load-bearing — none may be dropped");
+    }
 }
