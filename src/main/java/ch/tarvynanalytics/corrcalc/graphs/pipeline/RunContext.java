@@ -1,5 +1,7 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationProvenance;
+
 /**
  * The static run context echoed before the observation stream — the configuration known up front
  * (window, edge threshold, CUSUM constants, level-gate percentile, firing arm) plus the run's
@@ -11,8 +13,10 @@ package ch.tarvynanalytics.corrcalc.graphs.pipeline;
  * @param market           market label
  * @param timescale        timescale label (daily/intraday)
  * @param mode             how the data is sourced: {@code "replay"} (a future live feed is {@code "live"})
- * @param calibration      how the baseline was selected: {@code "leading-warmup"} (replay's pragmatic
- *                         leading prefix) vs {@code "calm-block"} (a rigorous walk-forward calm window)
+ * @param calibration      how the baseline was selected — the mode ({@code "leading-warmup"} replay's
+ *                         pragmatic leading prefix, {@code "calm-block"} a rigorous walk-forward calm
+ *                         window loaded from a persisted artifact, {@code "adaptive"} the online
+ *                         estimator) plus the live epoch and, when known, the calm source window
  * @param window           the S1 rolling-window width {@code W} (bars)
  * @param edgeThreshold    the edge threshold {@code τ} (an edge exists where {@code |r| > τ})
  * @param cusumK           the CUSUM reference value {@code k} (in calm-σ units)
@@ -26,7 +30,7 @@ public record RunContext(
         String market,
         String timescale,
         String mode,
-        String calibration,
+        CalibrationProvenance calibration,
         int window,
         double edgeThreshold,
         double cusumK,

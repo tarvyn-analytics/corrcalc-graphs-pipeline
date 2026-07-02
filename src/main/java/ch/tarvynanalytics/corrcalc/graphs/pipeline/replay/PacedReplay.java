@@ -4,6 +4,9 @@ import ch.tarvynanalytics.corrcalc.graphs.pipeline.ObservationPolicy;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObserver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.RunContext;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.SignalSink;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationArtifact;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSource;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSources;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.Bar;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.PriceBars;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.PriceSnapshots;
@@ -80,15 +83,18 @@ public final class PacedReplay {
         int expectedPoints = validateExpectedPoints(returnBars, cfg.window());
         int calmBars = resolveCalmBars(opts.calmBars(), expectedPoints);
 
-        PipelineEngine engine = buildEngine(symbols, cfg, opts, calmBars, sink, observer, policy);
+        CalibrationSource calibrationSource = buildCalibrationSource(opts, cfg, calmBars);
+        PipelineEngine engine = buildEngine(symbols, cfg, opts, calmBars, sink, observer, policy,
+                calibrationSource);
         logStart(opts, returnBars, expectedPoints, cfg, calmBars, clock.speed());
-        observer.onStart(runContext(opts, cfg, calmBars, clock.speed()));
+        observer.onStart(runContext(opts, cfg, calmBars, clock.speed(), calibrationSource));
 
         MarketDataSource source = new IterableMarketDataSource(symbols, snapshots);
         ReturnBuilder builder = new ReturnBuilder(symbols, sessionPolicy);
         RunSummary summary = PipelineDriver.run(source, builder, engine, clock);
         logDone(summary);
         observer.onComplete(summary);
+        saveCalibration(opts, engine, calibrationSource);
         return summary;
     }
 
@@ -112,9 +118,11 @@ public final class PacedReplay {
         int expectedPoints = validateExpectedPoints(returns.length, cfg.window());
         int calmBars = resolveCalmBars(opts.calmBars(), expectedPoints);
 
-        PipelineEngine engine = buildEngine(panel.symbols(), cfg, opts, calmBars, sink, observer, policy);
+        CalibrationSource calibrationSource = buildCalibrationSource(opts, cfg, calmBars);
+        PipelineEngine engine = buildEngine(panel.symbols(), cfg, opts, calmBars, sink, observer, policy,
+                calibrationSource);
         logStart(opts, returns.length, expectedPoints, cfg, calmBars, clock.speed());
-        observer.onStart(runContext(opts, cfg, calmBars, clock.speed()));
+        observer.onStart(runContext(opts, cfg, calmBars, clock.speed(), calibrationSource));
 
         List<Instant> timestamps = panel.timestamps();
         Instant prevTs = null;
@@ -132,24 +140,61 @@ public final class PacedReplay {
         RunSummary summary = engine.summary();
         logDone(summary);
         observer.onComplete(summary);
+        saveCalibration(opts, engine, calibrationSource);
         return summary;
     }
 
     /**
-     * Builds the static run context echoed before the stream. {@code mode=replay} and
-     * {@code calibration=leading-warmup} record this run's provenance — replay calibrates on a pragmatic
-     * leading prefix, not the rigorous walk-forward calm block the regression uses.
+     * Builds the run's {@link CalibrationSource} from the requested mode: the leading-warmup prefix
+     * (the default), or a calm-block source primed from the persisted walk-forward artifact — which
+     * must match this run's market + timescale (an intraday artifact never calibrates a daily
+     * detector; never mix timescales).
      */
-    private static RunContext runContext(ReplayOptions opts, TimescaleConfig cfg, int calmBars, double speed) {
+    private static CalibrationSource buildCalibrationSource(ReplayOptions opts, TimescaleConfig cfg,
+                                                            int calmBars) {
+        if (!ReplayOptions.CALM_BLOCK.equals(opts.calibrationMode())) {
+            return CalibrationSources.leadingWarmup(calmBars, cfg.detector());
+        }
+        CalibrationArtifact artifact = CalibrationSources.load(opts.calibrationArtifact());
+        if (!artifact.market().equals(opts.market()) || !artifact.timescale().equals(opts.timescale())) {
+            throw new IllegalArgumentException("calibration artifact is for [" + artifact.market() + "/"
+                    + artifact.timescale() + "], this run is [" + opts.market() + "/" + opts.timescale() + "]");
+        }
+        return CalibrationSources.calmBlock(artifact);
+    }
+
+    /** Persists the run's resulting calibration when asked ({@code --save-calibration}) and calibrated. */
+    private static void saveCalibration(ReplayOptions opts, PipelineEngine engine, CalibrationSource source) {
+        if (opts.saveCalibration() == null) {
+            return;
+        }
+        if (!engine.isCalibrated()) {
+            LOG.warn("not saving calibration artifact: the run ended before the detector calibrated");
+            return;
+        }
+        CalibrationArtifact artifact = source.artifact(opts.market(), opts.timescale());
+        CalibrationSources.save(artifact, opts.saveCalibration());
+        LOG.info("calibration artifact saved to {} (epoch {}, source {} .. {})", opts.saveCalibration(),
+                artifact.epochId(), artifact.sourceFrom(), artifact.sourceTo());
+    }
+
+    /**
+     * Builds the static run context echoed before the stream. {@code mode=replay} plus the calibration
+     * source's provenance — which mode selected the baseline (a leading-warmup baseline is a pragmatic
+     * prefix; calm-block is the rigorous walk-forward window the regression uses) and, when known, the
+     * calm source window.
+     */
+    private static RunContext runContext(ReplayOptions opts, TimescaleConfig cfg, int calmBars, double speed,
+                                         CalibrationSource calibrationSource) {
         DetectorConfig det = cfg.detector();
-        return new RunContext(opts.market(), opts.timescale(), "replay", "leading-warmup",
+        return new RunContext(opts.market(), opts.timescale(), "replay", calibrationSource.provenance(),
                 cfg.window(), cfg.edgeThreshold(), det.k(), det.h(), det.levelPctile(),
                 det.fireArm().name(), calmBars, speed);
     }
 
     private static PipelineEngine buildEngine(String[] symbols, TimescaleConfig cfg, ReplayOptions opts,
                                               int calmBars, SignalSink sink, PipelineObserver observer,
-                                              ObservationPolicy policy) {
+                                              ObservationPolicy policy, CalibrationSource calibrationSource) {
         return PipelineEngine.builder(symbols, cfg)
                 .calmBars(calmBars)
                 .market(opts.market())
@@ -158,6 +203,7 @@ public final class PacedReplay {
                 .observer(observer)
                 .observationPolicy(policy)
                 .limit(opts.limit())
+                .calibrationSource(calibrationSource)
                 .build();
     }
 

@@ -135,7 +135,7 @@ class NdjsonObserverTest {
     @Test
     void configRecord_SerializesStaticConfigAndProvenance() throws Exception {
         JsonNode n = MAPPER.readTree(NdjsonObserver.configRecord(new RunContext(
-                "crypto", "daily", "replay", "leading-warmup", 14, 0.5, 1.5, 8.0, 99.0, "UPPER", 18, 60.0)));
+                "crypto", "daily", "replay", new ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationProvenance("leading-warmup", 0L, null, null), 14, 0.5, 1.5, 8.0, 99.0, "UPPER", 18, 60.0)));
         assertEquals("config", n.get("rec").asText());
         assertEquals("replay", n.get("mode").asText());
         assertEquals("leading-warmup", n.get("calibration").asText());
@@ -153,7 +153,7 @@ class NdjsonObserverTest {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         NdjsonObserver observer = new NdjsonObserver(new PrintStream(bos, true, StandardCharsets.UTF_8));
         observer.onStart(new RunContext(
-                "crypto", "daily", "replay", "leading-warmup", 14, 0.5, 1.5, 8.0, 99.0, "UPPER", 18, 60.0));
+                "crypto", "daily", "replay", new ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationProvenance("leading-warmup", 0L, null, null), 14, 0.5, 1.5, 8.0, 99.0, "UPPER", 18, 60.0));
         observer.onObservation(obs(1.0, 1.0, 2.0, 0.0, 1.0, 0.167, 8.0, true));
 
         String[] lines = bos.toString(StandardCharsets.UTF_8).split("\n");

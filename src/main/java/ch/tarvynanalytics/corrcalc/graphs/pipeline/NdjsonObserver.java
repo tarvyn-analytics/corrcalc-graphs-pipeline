@@ -98,7 +98,7 @@ public final class NdjsonObserver implements PipelineObserver {
         n.put("market", c.market());
         n.put("timescale", c.timescale());
         n.put("mode", c.mode());
-        n.put("calibration", c.calibration());
+        n.put("calibration", c.calibration().calibrationMode());
         n.put("window", c.window());
         putNum(n, "edgeThreshold", c.edgeThreshold());
         putNum(n, "cusumK", c.cusumK());

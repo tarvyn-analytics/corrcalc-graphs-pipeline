@@ -46,4 +46,24 @@ public interface CalibrationSource {
      * @throws IllegalStateException if {@link #isReady()} is {@code false}
      */
     Calibration calibration();
+
+    /**
+     * This source's provenance for the run context: the mode label, the live epoch, and the calm
+     * source window when known (a leading-warmup source discovers its window from the stream, so
+     * the window is {@code null} until it has observed data).
+     *
+     * @return the provenance to echo on {@code RunContext}
+     */
+    CalibrationProvenance provenance();
+
+    /**
+     * The persisted form of this source's current calibration — the walk-forward currency a later
+     * run's calm-block source primes from ({@code --save-calibration}).
+     *
+     * @param market    the market label to stamp on the artifact
+     * @param timescale the timescale label to stamp on the artifact
+     * @return the artifact carrying {@link #calibration()} + this source's window provenance
+     * @throws IllegalStateException if {@link #isReady()} is {@code false}
+     */
+    CalibrationArtifact artifact(String market, String timescale);
 }

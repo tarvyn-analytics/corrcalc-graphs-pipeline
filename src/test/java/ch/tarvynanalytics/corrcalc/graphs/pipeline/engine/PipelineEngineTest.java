@@ -169,6 +169,18 @@ class PipelineEngineTest {
                     public ch.tarvynanalytics.graphs.algos.Calibration calibration() {
                         return external;
                     }
+
+                    @Override
+                    public ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationProvenance provenance() {
+                        return new ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationProvenance(
+                                "calm-block", 0L, null, null);
+                    }
+
+                    @Override
+                    public ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationArtifact artifact(
+                            String market, String timescale) {
+                        throw new UnsupportedOperationException("not persisted in this test");
+                    }
                 };
         PipelineEngine engine = builder(24).sink(new CollectingSink()).calibrationSource(ready).build();
 

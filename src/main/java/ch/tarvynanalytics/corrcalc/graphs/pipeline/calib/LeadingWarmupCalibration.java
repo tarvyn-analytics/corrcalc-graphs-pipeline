@@ -18,10 +18,14 @@ import java.util.List;
  */
 final class LeadingWarmupCalibration implements CalibrationSource {
 
+    static final String MODE = "leading-warmup";
+
     private final int calmBars;
     private final DetectorConfig config;
     private final List<Double> calmChange = new ArrayList<>();
     private final List<Double> calmDensity = new ArrayList<>();
+    private Instant firstAsOf;
+    private Instant lastAsOf;
     private Calibration result;
 
     LeadingWarmupCalibration(int calmBars, DetectorConfig config) {
@@ -37,6 +41,10 @@ final class LeadingWarmupCalibration implements CalibrationSource {
 
     @Override
     public void observe(Instant asOf, double weightedChange, double density) {
+        if (firstAsOf == null) {
+            firstAsOf = asOf;
+        }
+        lastAsOf = asOf;
         calmChange.add(weightedChange);
         calmDensity.add(density);
     }
@@ -56,6 +64,18 @@ final class LeadingWarmupCalibration implements CalibrationSource {
             result = ChangeDetectors.calibrate(toArray(calmChange), toArray(calmDensity), config);
         }
         return result;
+    }
+
+    @Override
+    public CalibrationProvenance provenance() {
+        // epoch 0: leading-warmup calibrates once and freezes; the window is discovered from the stream.
+        return new CalibrationProvenance(MODE, 0L, firstAsOf, lastAsOf);
+    }
+
+    @Override
+    public CalibrationArtifact artifact(String market, String timescale) {
+        return new CalibrationArtifact(CalibrationArtifact.SCHEMA_VERSION, market, timescale, 0L,
+                firstAsOf, lastAsOf, calmChange.size(), calibration());
     }
 
     private static double[] toArray(List<Double> values) {

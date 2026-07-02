@@ -91,7 +91,7 @@ public final class ReadableObserver implements PipelineObserver {
     public static String configBanner(RunContext c) {
         return String.format(Locale.ROOT,
                 "CONFIG  %s/%s  mode=%s  calibration=%s  window=%d  τ=%s  k=%s  h=%s  L=p%s  fireArm=%s  speed=%sx",
-                c.market(), c.timescale(), c.mode(), c.calibration(), c.window(),
+                c.market(), c.timescale(), c.mode(), c.calibration().calibrationMode(), c.window(),
                 fmt(c.edgeThreshold(), 2), fmt(c.cusumK(), 2), fmt(c.decisionInterval(), 2),
                 fmt(c.levelPctile(), 0), c.fireArm(), fmt(c.speed(), 0));
     }

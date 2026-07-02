@@ -165,6 +165,76 @@ class PipelineCliTest {
         assertTrue(stdout.contains("{\"rec\":\"digest\""), stdout);
     }
 
+    @Test
+    void run_BadCalibrationMode_Exit2() {
+        assertEquals(2, run("replay", "dir", "--event", "e", "--market", "crypto", "--calibration", "psychic"));
+        assertTrue(err.toString(StandardCharsets.UTF_8).contains("calibrationMode"));
+    }
+
+    @Test
+    void run_CalmBlockWithoutArtifact_Exit2() {
+        assertEquals(2, run("replay", "dir", "--event", "e", "--market", "crypto", "--calibration", "calm-block"));
+        assertTrue(err.toString(StandardCharsets.UTF_8).contains("artifact"));
+    }
+
+    @Test
+    void run_ArtifactWithoutCalmBlock_Exit2() {
+        assertEquals(2, run("replay", "dir", "--event", "e", "--market", "crypto",
+                "--calibration-artifact", "x.json"));
+    }
+
+    @Test
+    void run_SaveCalibration_ThenCalmBlockReplayFromIt_Exit0(@TempDir Path dir) throws IOException {
+        // The walk-forward workflow through the CLI alone: run 1 saves its calibration artifact;
+        // run 2 primes from it (calm-block), detects from the first snapshot, and echoes the
+        // provenance on the NDJSON config record.
+        String event = "demo";
+        List<String> symbols = List.of("AAA", "BBB", "CCC");
+        writeUniverse(dir, event, symbols);
+        for (int s = 0; s < symbols.size(); s++) {
+            writeDailyBars(dir, symbols.get(s), event, 24, 100L + s);
+        }
+        Path artifact = dir.resolve("calm.json");
+
+        int save = run("replay", dir.toString(), "--event", event, "--market", "crypto",
+                "--timescale", "daily", "--speed", "100000", "--max-step-ms", "0",
+                "--save-calibration", artifact.toString());
+        assertEquals(0, save, err.toString(StandardCharsets.UTF_8));
+        assertTrue(Files.exists(artifact), "run 1 should persist its calibration artifact");
+
+        int replay = run("replay", dir.toString(), "--event", event, "--market", "crypto",
+                "--timescale", "daily", "--speed", "100000", "--max-step-ms", "0", "--style", "ndjson",
+                "--calibration", "calm-block", "--calibration-artifact", artifact.toString());
+        assertEquals(0, replay, err.toString(StandardCharsets.UTF_8));
+        String stdout = out.toString(StandardCharsets.UTF_8);
+        assertTrue(stdout.contains("\"calibration\":\"calm-block\""), stdout);
+    }
+
+    @Test
+    void run_CalmBlockArtifactTimescaleMismatch_Exit2(@TempDir Path dir) throws IOException {
+        // An intraday artifact must never calibrate a daily detector (never mix timescales).
+        String event = "demo";
+        List<String> symbols = List.of("AAA", "BBB", "CCC");
+        writeUniverse(dir, event, symbols);
+        for (int s = 0; s < symbols.size(); s++) {
+            writeDailyBars(dir, symbols.get(s), event, 24, 100L + s);
+        }
+        Path artifact = dir.resolve("intraday.json");
+        ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSources.save(
+                new ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationArtifact(
+                        1, "crypto", "intraday", 0L,
+                        Instant.parse("2020-01-01T00:00:00Z"), Instant.parse("2020-02-01T00:00:00Z"), 100,
+                        new ch.tarvynanalytics.graphs.algos.Calibration(0.05, 0.02, 0.0)),
+                artifact);
+
+        int code = run("replay", dir.toString(), "--event", event, "--market", "crypto",
+                "--timescale", "daily", "--speed", "100000", "--max-step-ms", "0",
+                "--calibration", "calm-block", "--calibration-artifact", artifact.toString());
+        assertEquals(2, code);
+        assertTrue(err.toString(StandardCharsets.UTF_8).contains("artifact is for"),
+                err.toString(StandardCharsets.UTF_8));
+    }
+
     private static void writeUniverse(Path dir, String event, List<String> symbols) throws IOException {
         StringBuilder sb = new StringBuilder("symbol\n");
         for (String s : symbols) {
