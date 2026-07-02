@@ -199,6 +199,79 @@ class PipelineEngineTest {
     }
 
     @Test
+    void onReturns_MultiFusionStream_RearmsOnAllClearAndFiresPerEvent() {
+        // H2 Q4 acceptance in miniature: two well-separated fusion→recovery cycles through the real
+        // engine; with the re-arm cadence enabled the SECOND event fires too (pre-H2: once ever).
+        // Small defusion gauge (N_g=4, θ=0.75) + cool-down 2 keep the trace hand-checkable.
+        CollectingSink sink = new CollectingSink();
+        PipelineEngine engine = PipelineEngine.builder(syms(4), rearmCfg(true)).calmBars(24)
+                .market("crypto").timescale("intraday").observer(PipelineObserver.noOp())
+                .sink(sink).build();
+
+        drive(engine, cycles(36, 10, 40, 10, 20, 21L));
+
+        List<SignalKind> kinds = sink.signals().stream().map(s -> s.kind()).toList();
+        assertEquals(2, kinds.stream().filter(k -> k == SignalKind.FUSION).count(),
+                "one fire per regime event, re-armed between: " + kinds);
+        assertTrue(kinds.contains(SignalKind.DEFUSION), "the all-clear drives the re-arm: " + kinds);
+        assertTrue(kinds.lastIndexOf(SignalKind.FUSION) > kinds.indexOf(SignalKind.DEFUSION),
+                "fusion → all-clear → re-armed fusion, in order: " + kinds);
+    }
+
+    @Test
+    void onReturns_MultiFusionStream_DisabledRearm_FiresOnceEver() {
+        // The unchanged-behaviour guard: with the cadence disabled (bare TimescaleConfig), the
+        // identical stream keeps the pre-H2 debounce — one fusion, ever.
+        CollectingSink sink = new CollectingSink();
+        PipelineEngine engine = PipelineEngine.builder(syms(4), rearmCfg(false)).calmBars(24)
+                .market("crypto").timescale("intraday").observer(PipelineObserver.noOp())
+                .sink(sink).build();
+
+        drive(engine, cycles(36, 10, 40, 10, 20, 21L));
+
+        List<SignalKind> kinds = sink.signals().stream().map(s -> s.kind()).toList();
+        assertEquals(1, kinds.stream().filter(k -> k == SignalKind.FUSION).count(),
+                "disabled cadence: the debounce holds for the whole run: " + kinds);
+    }
+
+    /** Crypto constants + a small de-fusion gauge (N_g=4, θ=0.75), re-arm cadence on or off. */
+    private static TimescaleConfig rearmCfg(boolean rearmEnabled) {
+        DetectorConfig base = DetectorConfig.crypto();
+        DetectorConfig withDefusion = new DetectorConfig(base.k(), base.h(), base.levelPctile(),
+                base.edgeThreshold(), base.epsilonSigma(), base.fireArm(),
+                new ch.tarvynanalytics.graphs.algos.DefusionConfig(0.75, 0.75, 4, true));
+        return rearmEnabled
+                ? new TimescaleConfig(WINDOW, withDefusion,
+                        new ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.RearmConfig(true, 2, 0.25, 5, 0))
+                : new TimescaleConfig(WINDOW, withDefusion);
+    }
+
+    /** Calm(calibrate) → fused → calm(recovery) → fused → calm: two separated regime cycles. */
+    private static Returns cycles(int calm1, int fused1, int calm2, int fused2, int calm3, long seed) {
+        Random rng = new Random(seed);
+        int rows = calm1 + fused1 + calm2 + fused2 + calm3;
+        double[][] returns = new double[rows][4];
+        List<Instant> timestamps = new ArrayList<>();
+        Instant t0 = Instant.parse("2021-05-01T00:00:00Z");
+        for (int t = 0; t < rows; t++) {
+            timestamps.add(t0.plusSeconds(60L * t));
+            boolean fused = (t >= calm1 && t < calm1 + fused1)
+                    || (t >= calm1 + fused1 + calm2 && t < calm1 + fused1 + calm2 + fused2);
+            if (fused) {
+                double shared = 5.0 * rng.nextGaussian();
+                for (int s = 0; s < 4; s++) {
+                    returns[t][s] = shared;
+                }
+            } else {
+                for (int s = 0; s < 4; s++) {
+                    returns[t][s] = 0.2 * rng.nextGaussian();
+                }
+            }
+        }
+        return new Returns(timestamps, returns);
+    }
+
+    @Test
     void build_RejectsBadCalmBarsAndMissingSink() {
         assertThrows(IllegalArgumentException.class, () -> builder(1).sink(new CollectingSink()).build());
         assertThrows(IllegalArgumentException.class, () -> PipelineEngine.builder(syms(4), CFG).calmBars(10).build());

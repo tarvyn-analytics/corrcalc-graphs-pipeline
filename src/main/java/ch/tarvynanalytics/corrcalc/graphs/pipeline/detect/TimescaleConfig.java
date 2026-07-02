@@ -16,8 +16,15 @@ import ch.tarvynanalytics.graphs.algos.DetectorConfig;
  *
  * @param window   the rolling-window width in bars ({@code >= 2})
  * @param detector the S3 detector tuning (alert constants + edge threshold)
+ * @param rearm    the continuous-stream re-arm cadence (H2 Q4); {@link RearmConfig#disabled()} keeps
+ *                 the one-fire-per-run behaviour
  */
-public record TimescaleConfig(int window, DetectorConfig detector) {
+public record TimescaleConfig(int window, DetectorConfig detector, RearmConfig rearm) {
+
+    /** A single-window configuration with the re-arm cadence disabled (the pre-H2 behaviour). */
+    public TimescaleConfig(int window, DetectorConfig detector) {
+        this(window, detector, RearmConfig.disabled());
+    }
 
     /**
      * The crypto intraday timescale: 480-bar (8 h) window, crypto detector constants, with the
@@ -32,7 +39,9 @@ public record TimescaleConfig(int window, DetectorConfig detector) {
         DetectorConfig withDefusion = new DetectorConfig(base.k(), base.h(), base.levelPctile(),
                 base.edgeThreshold(), base.epsilonSigma(), base.fireArm(),
                 new DefusionConfig(0.75, 0.80, 2880, true));
-        return new TimescaleConfig(480, withDefusion);
+        // Re-arm on the all-clear + 48 h cool-down (2880 one-minute bars); the calendar backstop is
+        // off — de-fusion drives the cadence on this timescale (numerics spec Q4.1).
+        return new TimescaleConfig(480, withDefusion, new RearmConfig(true, 2880, 0.25, 5, 0));
     }
 
     /**
@@ -41,7 +50,9 @@ public record TimescaleConfig(int window, DetectorConfig detector) {
      * samples, too coarse to be a meaningful all-clear — the recovery track is an intraday product.
      */
     public static TimescaleConfig cryptoDaily() {
-        return new TimescaleConfig(14, DetectorConfig.crypto());
+        // No all-clear on daily (de-fusion off) — re-arm on S⁺-relaxation with the gate closed
+        // (5 sustained bars below 0.25·h), with the 21-day calendar backstop (numerics spec Q4.2).
+        return new TimescaleConfig(14, DetectorConfig.crypto(), new RearmConfig(true, 2, 0.25, 5, 21));
     }
 
     /** The edge threshold {@code τ} (an edge exists where {@code |r| > τ}). */
