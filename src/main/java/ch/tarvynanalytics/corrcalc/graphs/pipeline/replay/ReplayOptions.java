@@ -33,6 +33,11 @@ import java.time.LocalDate;
  *                            {@code leading-warmup}
  * @param saveCalibration     where to persist the run's resulting calibration artifact, or
  *                            {@code null} to not save
+ * @param fireMode            which detector drives the product fire-stream: {@code "cusum"} (the
+ *                            default adaptive-CUSUM detector — the n=8 in-span product) or
+ *                            {@code "regime"} (the H2R-2 level+hysteresis regime backbone on the
+ *                            daily-smoothed density — the continuous-tape fire, with the CUSUM demoted
+ *                            to annotation)
  */
 public record ReplayOptions(
         String event,
@@ -48,7 +53,8 @@ public record ReplayOptions(
         LocalDate to,
         String calibrationMode,
         Path calibrationArtifact,
-        Path saveCalibration) {
+        Path saveCalibration,
+        String fireMode) {
 
     /** The pragmatic leading-prefix calibration-mode label (the "quick look" default). */
     public static final String LEADING_WARMUP = "leading-warmup";
@@ -56,6 +62,10 @@ public record ReplayOptions(
     public static final String CALM_BLOCK = "calm-block";
     /** The adaptive (online walk-forward) mode label (H2 PR-5). */
     public static final String ADAPTIVE = "adaptive";
+    /** The default adaptive-CUSUM fire mode (the in-span n=8 product). */
+    public static final String CUSUM = "cusum";
+    /** The H2R-2 regime-backbone fire mode (the continuous-tape product). */
+    public static final String REGIME = "regime";
 
     /** Validates the knobs, throwing {@link IllegalArgumentException} with the offending value bracketed. */
     public ReplayOptions {
@@ -95,6 +105,10 @@ public record ReplayOptions(
         if (LEADING_WARMUP.equals(calibrationMode) && calibrationArtifact != null) {
             throw new IllegalArgumentException("a calibration artifact is only read under calm-block; "
                     + "mode is [" + calibrationMode + "]");
+        }
+        if (!CUSUM.equals(fireMode) && !REGIME.equals(fireMode)) {
+            throw new IllegalArgumentException("fireMode must be " + CUSUM + " or " + REGIME
+                    + " [" + fireMode + "]");
         }
     }
 }

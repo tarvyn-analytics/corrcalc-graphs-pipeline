@@ -59,6 +59,7 @@ public final class PipelineDriver {
         } catch (InterruptedException _) {
             Thread.currentThread().interrupt();   // stop promptly; the summary so far is returned
         }
+        engine.finish();   // end-of-stream: flush the regime aggregator + report an open-at-EOF regime
         return engine.summary();
     }
 }

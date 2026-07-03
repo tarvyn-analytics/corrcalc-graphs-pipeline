@@ -8,10 +8,15 @@ import ch.tarvynanalytics.graphs.algos.Calibration;
 import ch.tarvynanalytics.graphs.algos.ChangeDetector;
 import ch.tarvynanalytics.graphs.algos.ChangeDetectors;
 import ch.tarvynanalytics.graphs.algos.ChangeMetricsAnalyzer;
+import ch.tarvynanalytics.graphs.algos.RegimeDetector;
+import ch.tarvynanalytics.graphs.algos.RegimeDetectors;
 import ch.tarvynanalytics.graphs.algos.model.ChangeMetrics;
 import ch.tarvynanalytics.graphs.algos.model.ChangeSignal;
 import ch.tarvynanalytics.graphs.algos.model.FireDirection;
 import ch.tarvynanalytics.graphs.algos.model.PairChange;
+import ch.tarvynanalytics.graphs.algos.model.RegimeSignal;
+import ch.tarvynanalytics.graphs.algos.model.RegimeState;
+import ch.tarvynanalytics.graphs.algos.model.RegimeTransition;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.CalibrationEvent;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.CalibrationEventKind;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.DetectorState;
@@ -21,12 +26,16 @@ import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSource;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSources;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObservation;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObserver;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.RegimeEvent;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.RegimeEventKind;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.SignalFilter;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.SignalKind;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.SignalPublisher;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.SignalSink;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.StructuralSignal;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.StructuralSignals;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.RegimeSeries;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.RegimeTimescaleConfig;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.TimescaleConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -104,6 +113,16 @@ public final class PipelineEngine {
         listener.onSessionBoundary();
     }
 
+    /**
+     * Signals end-of-stream: in the regime-backbone fire mode, flushes the daily-density aggregator so
+     * the trailing days are read, emits any final regime edge, and reports a regime still fused at the
+     * tape end ({@link RegimeEventKind#OPEN_AT_EOF}) rather than force-closing it. A no-op in the
+     * adaptive-CUSUM fire mode. The driver calls this once after the last bar, before the run summary.
+     */
+    public void finish() {
+        listener.finish();
+    }
+
     /** Whether calibration has completed and the engine is now scoring transitions. */
     public boolean isCalibrated() {
         return listener.detector != null;
@@ -168,6 +187,7 @@ public final class PipelineEngine {
         private Integer limit;
         private int contributorsTopK = 3;
         private CalibrationSource calibrationSource;
+        private RegimeTimescaleConfig regime;
 
         private Builder(String[] symbols, TimescaleConfig cfg) {
             if (symbols == null || symbols.length == 0) {
@@ -260,6 +280,24 @@ public final class PipelineEngine {
             return this;
         }
 
+        /**
+         * Selects the <strong>regime-backbone</strong> fire mode (H2R-2): the continuous-tape fire is the
+         * level+hysteresis Schmitt trigger on the daily-smoothed correlation density (design §5.3), and
+         * the CUSUM detector is demoted to an annotation layer — it still scores and observes, but its
+         * fires no longer reach the product fire-stream. One {@link StructuralSignal} is published per
+         * regime edge ({@link RegimeEventKind#FUSION_ONSET} → {@link SignalKind#FUSION},
+         * {@link RegimeEventKind#CALM_ONSET} → {@link SignalKind#DEFUSION}) and one {@link RegimeEvent} is
+         * forwarded to the observer. Leaving this unset keeps the default <strong>adaptive-CUSUM</strong>
+         * fire mode, byte-for-byte the pre-H2R behaviour (the n=8 regression path).
+         *
+         * @param regimeConfig the regime timescale tuning, or {@code null} to keep the CUSUM fire mode
+         * @return this builder
+         */
+        public Builder regime(RegimeTimescaleConfig regimeConfig) {
+            this.regime = regimeConfig;
+            return this;
+        }
+
         /** Builds the engine, validating the required knobs. */
         public PipelineEngine build() {
             if (calmBars < 2) {
@@ -292,6 +330,11 @@ public final class PipelineEngine {
         private final List<String> universe;
         private final CalibrationSource calibrationSource;
 
+        // Regime-backbone fire mode (H2R-2): null in the default adaptive-CUSUM mode. When present, the
+        // daily-density Schmitt trigger is the fire and the CUSUM path (below) is demoted to annotation.
+        private final RegimeSeries.DailyAggregator regimeAgg;
+        private final RegimeDetector regimeDetector;
+
         private double[][] prev;
         private double[][] detectPrev;
         private ChangeDetector detector;
@@ -303,6 +346,12 @@ public final class PipelineEngine {
         private long published;
         private long observationsEmitted;
         private boolean stop;
+        // Regime-backbone state: the last regime, the open fusion's onset day, and the latest daily read.
+        private RegimeState regimeState = RegimeState.CALM;
+        private Instant regimeOnset;
+        private Instant lastRegimeDay;
+        private double lastRegimeLevel = Double.NaN;
+        private boolean finished;
 
         Listener(Builder b) {
             this.order = b.symbols.length;
@@ -318,16 +367,80 @@ public final class PipelineEngine {
             this.contributorsTopK = b.contributorsTopK;
             this.universe = List.of(b.symbols);
             this.calibrationSource = b.calibrationSource;
+            if (b.regime != null) {
+                this.regimeAgg = new RegimeSeries.DailyAggregator(b.regime.smoothWindow());
+                this.regimeDetector = RegimeDetectors.create(b.regime.regime());
+            } else {
+                this.regimeAgg = null;
+                this.regimeDetector = null;
+            }
+        }
+
+        /** Whether this run drives the regime-backbone fire (vs the default adaptive-CUSUM fire). */
+        private boolean regimeMode() {
+            return regimeDetector != null;
         }
 
         @Override
         public void onSnapshot(long seq, Instant asOf, DoubleMatrix pearson, String[] labels) {
             double[][] current = toArray(pearson, order);
+            if (regimeMode()) {
+                // The regime read is independent of the CUSUM calibration: it consumes the raw density
+                // from the first window-fill, aggregated to daily means then smoothed (design §5.1).
+                double density = ChangeMetricsAnalyzer.analyze(current, current, tau).densityLevel();
+                for (RegimeSeries.DailyLevel daily : regimeAgg.onDensity(asOf, density)) {
+                    stepRegime(daily);
+                }
+            }
             if (detector == null) {
                 calibrate(asOf, current);
             } else {
                 detect(asOf, current);
             }
+        }
+
+        /**
+         * Advances the regime Schmitt trigger by one smoothed daily level and, on a crossing, opens or
+         * closes a fused regime — publishing one {@link StructuralSignal} and forwarding one
+         * {@link RegimeEvent}. The down-crossing (calm onset) is the all-clear; the up-crossing opens a
+         * regime. This is the whole continuous-tape fire (design §5.3): no re-arm clock, no freeze.
+         */
+        private void stepRegime(RegimeSeries.DailyLevel daily) {
+            RegimeSignal rs = regimeDetector.step(daily.level());
+            regimeState = rs.state();
+            lastRegimeDay = daily.day();
+            lastRegimeLevel = daily.level();
+            if (rs.transition() == RegimeTransition.FUSION_ONSET) {
+                regimeOnset = daily.day();
+                emitRegimeEdge(daily.day(), RegimeEventKind.FUSION_ONSET, daily.level(), daily.day());
+            } else if (rs.transition() == RegimeTransition.CALM_ONSET) {
+                // regimeOnset is always set here: a calm onset can only follow a fusion onset.
+                emitRegimeEdge(daily.day(), RegimeEventKind.CALM_ONSET, daily.level(), regimeOnset);
+            }
+        }
+
+        /**
+         * Forwards a regime edge to the observer and, for a fusion/calm onset, publishes the matching
+         * {@link StructuralSignal} to the product fire-stream ({@link RegimeEventKind#OPEN_AT_EOF} is an
+         * observability marker, so it is forwarded but never published).
+         */
+        private void emitRegimeEdge(Instant day, RegimeEventKind kind, double level, Instant onset) {
+            observer.onRegimeEvent(new RegimeEvent(day, kind, level, onset));
+            if (kind == RegimeEventKind.OPEN_AT_EOF) {
+                return;
+            }
+            fires++;
+            StructuralSignal signal = regimeSignal(day, kind.toSignalKind(), level);
+            if (publisher.publish(signal).isPresent()) {
+                published++;
+            }
+        }
+
+        /** A product signal for a regime edge: the smoothed density is the level; CUSUM fields are N/A. */
+        private StructuralSignal regimeSignal(Instant day, SignalKind kind, double level) {
+            return new StructuralSignal(day, market, timescale, universe, kind,
+                    Double.NaN, Double.NaN, Double.NaN, level, Double.NaN, 0, Double.NaN,
+                    StructuralSignal.Validity.accepted(), null);
         }
 
         private void calibrate(Instant asOf, double[][] current) {
@@ -389,7 +502,10 @@ public final class PipelineEngine {
                 observer.onObservation(obs);
                 observationsEmitted++;
             }
-            if (sig.fired()) {
+            // In the regime-backbone mode the CUSUM is demoted to annotation: its fired fact stays on the
+            // observation stream (above) but never counts as a product fire or reaches the fire-stream —
+            // the regime edge is the fire (design §5.3). In the default mode this is the product fire.
+            if (sig.fired() && !regimeMode()) {
                 fires++;
                 // A demoted source (post-timeout re-warm-up) does not vouch for alerts: the raw fact
                 // stays on the observation stream, but nothing reaches the product fire-stream.
@@ -454,6 +570,28 @@ public final class PipelineEngine {
                 rearm.onSessionBoundary();
             } else {
                 prev = null;   // drop the calibration predecessor so no change spans the gap
+            }
+            // The regime read is a daily-cadence product that spans sessions by design: a UTC-day
+            // boundary must NOT reset the aggregator or the Schmitt trigger (that is what lets one fused
+            // regime run across many days). So the regime state is deliberately untouched here.
+        }
+
+        /**
+         * End-of-stream: flush the daily aggregator so the trailing days are read (their smoothed level
+         * emitted with the centered-median delay), step the trigger over them, then — if the regime is
+         * still fused — report it open at EOF instead of force-closing it (design §8.5). Idempotent.
+         */
+        void finish() {
+            if (!regimeMode() || finished) {
+                return;
+            }
+            finished = true;
+            for (RegimeSeries.DailyLevel daily : regimeAgg.flush()) {
+                stepRegime(daily);
+            }
+            if (regimeState == RegimeState.FUSED && lastRegimeDay != null) {
+                // regimeOnset is set whenever the state is FUSED (a fusion onset put it there).
+                emitRegimeEdge(lastRegimeDay, RegimeEventKind.OPEN_AT_EOF, lastRegimeLevel, regimeOnset);
             }
         }
 

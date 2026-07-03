@@ -58,6 +58,18 @@ public interface PipelineObserver {
         // default: observers that do not track the calibration lifecycle ignore it
     }
 
+    /**
+     * Receives one regime-state edge from the continuous-tape backbone ({@link RegimeEvent}: a bounded
+     * kind + the smoothed density and paired onset). Interleaved with {@link #onObservation} in stream
+     * order and never gated by an {@link ObservationPolicy} (a regime edge is always reported); emitted
+     * only when the engine runs the regime-backbone fire mode. The default is a no-op.
+     *
+     * @param event the regime edge
+     */
+    default void onRegimeEvent(RegimeEvent event) {
+        // default: observers that do not track the regime backbone ignore it
+    }
+
     /** A sink that drops every observation — the default when a consumer wants only the fire-stream. */
     static PipelineObserver noOp() {
         return observation -> {

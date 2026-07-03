@@ -95,6 +95,7 @@ public final class PipelineCli {
         String calibration = "leading-warmup";
         String calibrationArtifact = null;
         String saveCalibration = null;
+        String fireMode = "cusum";
 
         for (int i = 1; i < args.length; i++) {
             String a = args[i];
@@ -120,6 +121,7 @@ public final class PipelineCli {
                 case "--calibration" -> calibration = value(args, ++i, a);
                 case "--calibration-artifact" -> calibrationArtifact = value(args, ++i, a);
                 case "--save-calibration" -> saveCalibration = value(args, ++i, a);
+                case "--fire-mode" -> fireMode = value(args, ++i, a);
                 default -> {
                     if (a.startsWith("-")) {
                         throw new UsageException("unknown option [" + a + "]");
@@ -155,7 +157,7 @@ public final class PipelineCli {
                 limit, heartbeatEvery, universe == null ? null : Path.of(universe),
                 parseDate(from, "--from"), parseDate(to, "--to"),
                 calibration, calibrationArtifact == null ? null : Path.of(calibrationArtifact),
-                saveCalibration == null ? null : Path.of(saveCalibration));
+                saveCalibration == null ? null : Path.of(saveCalibration), fireMode);
 
         ObservationPolicy policy = parseObserve(observe);
         // Fires go to the product sink (loud WARN banner); the full transition series goes to the
@@ -292,6 +294,10 @@ public final class PipelineCli {
                                               the artifact JSON: the calm-block baseline (required),
                                               or an adaptive run's operator-vouched prior (optional)
                   --save-calibration <path>   persist this run's resulting calibration artifact
+                  --fire-mode cusum|regime    which detector drives the fire-stream: the adaptive-CUSUM
+                                              detector (default, the in-span n=8 product), or the H2R-2
+                                              regime backbone on the daily-smoothed density (the
+                                              continuous-tape fire; CUSUM demoted to annotation)
                   -v, --verbose               DEBUG logging
                   -h, --help                  this help
 

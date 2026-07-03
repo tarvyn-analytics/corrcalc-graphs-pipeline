@@ -13,6 +13,7 @@ import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.ReturnPanel;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.SessionPolicy;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.StreamingPriceSnapshots;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.UniverseCsv;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.RegimeTimescaleConfig;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.TimescaleConfig;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.engine.PipelineDriver;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.engine.PipelineEngine;
@@ -139,6 +140,7 @@ public final class PacedReplay {
                 break;
             }
         }
+        engine.finish();   // end-of-stream: flush the regime aggregator + report an open-at-EOF regime
         RunSummary summary = engine.summary();
         logDone(summary);
         observer.onComplete(summary);
@@ -225,7 +227,17 @@ public final class PacedReplay {
                 .observationPolicy(policy)
                 .limit(opts.limit())
                 .calibrationSource(calibrationSource)
+                .regime(regimeConfigFor(opts))
                 .build();
+    }
+
+    /**
+     * The regime timescale tuning for a regime-backbone run (H2R-2), or {@code null} for the default
+     * adaptive-CUSUM fire mode. The market itself is validated in {@link #resolveConfig}; crypto is the
+     * only wired market today.
+     */
+    private static RegimeTimescaleConfig regimeConfigFor(ReplayOptions opts) {
+        return ReplayOptions.REGIME.equals(opts.fireMode()) ? RegimeTimescaleConfig.crypto() : null;
     }
 
     private static String[] loadUniverse(Path dataDir, ReplayOptions opts) {

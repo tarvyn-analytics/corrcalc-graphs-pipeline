@@ -46,8 +46,21 @@ class ReplayOptionsTest {
         assertTrue(e.getMessage().contains("[psychic]"), e.getMessage());
     }
 
+    @Test
+    void constructor_FireMode_AcceptsCusumAndRegimeRejectsOthers() {
+        assertDoesNotThrow(() -> options(ReplayOptions.LEADING_WARMUP, null, ReplayOptions.CUSUM));
+        assertDoesNotThrow(() -> options(ReplayOptions.LEADING_WARMUP, null, ReplayOptions.REGIME));
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> options(ReplayOptions.LEADING_WARMUP, null, "quantum"));
+        assertTrue(e.getMessage().contains("[quantum]"), e.getMessage());
+    }
+
     private static ReplayOptions options(String calibrationMode, Path artifact) {
+        return options(calibrationMode, artifact, ReplayOptions.CUSUM);
+    }
+
+    private static ReplayOptions options(String calibrationMode, Path artifact, String fireMode) {
         return new ReplayOptions("synthetic", "crypto", "intraday",
-                1000.0, 0L, null, null, 1, null, null, null, calibrationMode, artifact, null);
+                1000.0, 0L, null, null, 1, null, null, null, calibrationMode, artifact, null, fireMode);
     }
 }
