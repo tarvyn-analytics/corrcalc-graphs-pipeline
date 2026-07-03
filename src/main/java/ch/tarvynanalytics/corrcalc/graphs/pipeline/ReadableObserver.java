@@ -76,6 +76,31 @@ public final class ReadableObserver implements PipelineObserver {
         LOG.info("{}", calibrationEventLine(event));
     }
 
+    @Override
+    public void onRegimeEvent(RegimeEvent event) {
+        if (event == null) {
+            throw new IllegalArgumentException("event must not be null");
+        }
+        digest.addRegimeEvent(event);
+        LOG.info("{}", regimeEventLine(event));
+    }
+
+    /**
+     * One regime-backbone line — the fixed {@link RegimeEventKind#phrase() phrase table} plus the raw
+     * facts (never generated text): the smoothed density, the crossing confidence, and — for an
+     * all-clear or an open-at-EOF regime — how many days the regime was fused. E.g.
+     * {@code REGIME 2021-11-07T00:00:00Z  regime cleared — calm  density=0.42 confidence=0.07 fused=202d}.
+     *
+     * @param e the regime edge
+     * @return the human-readable regime line
+     */
+    public static String regimeEventLine(RegimeEvent e) {
+        String dwell = e.kind() == RegimeEventKind.FUSION_ONSET
+                ? "" : String.format(Locale.ROOT, " fused=%dd", e.fusedDwell().toDays());
+        return String.format(Locale.ROOT, "REGIME %s  %s  density=%s confidence=%s%s",
+                e.asOf(), e.kind().phrase(), fmt(e.smoothedDensity(), 2), fmt(e.confidence(), 2), dwell);
+    }
+
     /**
      * One calibration-lifecycle line — the fixed {@link CalibrationEventKind#phrase() phrase table}
      * plus the raw before/after facts, never generated text: e.g.

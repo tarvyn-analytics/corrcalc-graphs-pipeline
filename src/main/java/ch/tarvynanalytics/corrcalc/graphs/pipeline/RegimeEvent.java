@@ -18,11 +18,17 @@ import java.time.Instant;
  * @param asOf            the UTC-midnight timestamp of the day the edge was confirmed on
  * @param kind           which edge this is (fusion onset / calm onset / still-open-at-EOF)
  * @param smoothedDensity the daily-smoothed density level at the edge (the value the trigger read)
+ * @param confidence      how decisive the crossing was, in {@code [0, 1]} — the margin past the mark
+ *                        normalised by the room beyond it (0 at the mark, 1 at a saturated/empty graph)
+ *                        — computed by the pipeline (which owns the marks), never the GAL trigger
+ *                        (design §3, §8.3); {@link Double#NaN} for {@link RegimeEventKind#OPEN_AT_EOF}
+ *                        (no crossing occurred)
  * @param regimeOnset     the fusion-onset day of the regime this edge belongs to — equal to
  *                        {@code asOf} for a {@link RegimeEventKind#FUSION_ONSET}, and the paired onset
  *                        for a {@link RegimeEventKind#CALM_ONSET} / {@link RegimeEventKind#OPEN_AT_EOF}
  */
-public record RegimeEvent(Instant asOf, RegimeEventKind kind, double smoothedDensity, Instant regimeOnset) {
+public record RegimeEvent(Instant asOf, RegimeEventKind kind, double smoothedDensity, double confidence,
+                          Instant regimeOnset) {
 
     /** Validates the required components. */
     public RegimeEvent {

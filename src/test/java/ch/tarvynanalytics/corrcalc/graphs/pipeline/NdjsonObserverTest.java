@@ -27,7 +27,7 @@ class NdjsonObserverTest {
         JsonNode n = MAPPER.readTree(
                 NdjsonObserver.calibRecord(obs(1.0, 1.0, 0.81, 0.0647, 0.0258, 0.167, 34.0, true)));
         assertEquals("calib", n.get("rec").asText());
-        assertEquals(3, n.get("schema").asInt());
+        assertEquals(4, n.get("schema").asInt());
         assertEquals("crypto", n.get("market").asText());
         assertEquals("daily", n.get("timescale").asText());
         assertEquals(0.0647, n.get("mu").asDouble(), 1e-12);
@@ -198,6 +198,42 @@ class NdjsonObserverTest {
     }
 
     @Test
+    void regimeRecord_SerializesTheRegimeEdge() throws Exception {
+        RegimeEvent close = new RegimeEvent(Instant.parse("2021-11-07T00:00:00Z"),
+                RegimeEventKind.CALM_ONSET, 0.42, 0.07, Instant.parse("2021-04-19T00:00:00Z"));
+        JsonNode n = MAPPER.readTree(NdjsonObserver.regimeRecord(close));
+
+        assertEquals("regime", n.get("rec").asText());
+        assertEquals(4, n.get("schema").asInt());
+        assertEquals("CALM_ONSET", n.get("kind").asText());
+        assertEquals("2021-11-07T00:00:00Z", n.get("asOf").asText());
+        assertEquals(0.42, n.get("density").asDouble(), 1e-12);
+        assertEquals(0.07, n.get("confidence").asDouble(), 1e-12);
+        assertEquals("2021-04-19T00:00:00Z", n.get("regimeOnset").asText());
+        assertEquals(202, n.get("fusedDwellDays").asInt());
+    }
+
+    @Test
+    void onRegimeEvent_EmitsRegimeRecordAndFoldsTheDigest() throws Exception {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        NdjsonObserver observer = new NdjsonObserver(new PrintStream(bos, true, StandardCharsets.UTF_8));
+        Instant onset = Instant.parse("2020-02-24T00:00:00Z");
+        observer.onRegimeEvent(new RegimeEvent(onset, RegimeEventKind.FUSION_ONSET, 0.95, 0.67, onset));
+        observer.onRegimeEvent(new RegimeEvent(Instant.parse("2020-04-23T00:00:00Z"),
+                RegimeEventKind.CALM_ONSET, 0.4, 0.11, onset));
+        observer.onComplete(new RunSummary(0, 2, 2, 0, 18));
+
+        String[] lines = bos.toString(StandardCharsets.UTF_8).split("\n");
+        assertEquals("regime", MAPPER.readTree(lines[0]).get("rec").asText());
+        assertEquals("FUSION_ONSET", MAPPER.readTree(lines[0]).get("kind").asText());
+        JsonNode digest = MAPPER.readTree(lines[lines.length - 1]);
+        assertEquals(1, digest.get("fusedRegimeCount").asInt());
+        assertEquals(1, digest.get("calmOnsets").asInt());
+        assertEquals(false, digest.get("regimeOpenAtEof").asBoolean());
+        assertThrows(IllegalArgumentException.class, () -> observer.onRegimeEvent(null));
+    }
+
+    @Test
     void constructor_RejectsNullStream() {
         assertThrows(IllegalArgumentException.class, () -> new NdjsonObserver(null));
     }
@@ -265,7 +301,7 @@ class NdjsonObserverTest {
                 CalibrationEventKind.RECALIBRATED, 2, 0.0100, 0.0132, 0.0043, 0.0051,
                 Instant.parse("2021-05-19T13:00:00Z"))));
         assertEquals("calibEvent", n.get("rec").asText());
-        assertEquals(3, n.get("schema").asInt());
+        assertEquals(4, n.get("schema").asInt());
         assertEquals("2021-05-19T13:00:00Z", n.get("asOf").asText());
         assertEquals("RECALIBRATED", n.get("kind").asText());
         assertEquals(2, n.get("epochId").asLong());

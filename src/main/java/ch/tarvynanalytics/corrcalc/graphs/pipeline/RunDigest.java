@@ -38,6 +38,9 @@ final class RunDigest {
     private long recalibrations;
     private double muFirstBefore = Double.NaN;
     private double muLastAfter = Double.NaN;
+    private long fusedRegimeCount;
+    private long calmOnsetCount;
+    private boolean regimeOpenAtEof;
 
     /** Folds one received observation into the running figures. */
     void add(PipelineObservation o) {
@@ -103,8 +106,36 @@ final class RunDigest {
         muLastAfter = event.muAfter();
     }
 
+    /**
+     * Folds one regime-backbone edge into the running figures (H2R-2): a fusion onset opens a fused
+     * regime, a calm onset is the all-clear, and an open-at-EOF marks a regime still fused at tape end.
+     * The fused-regime cycle count is the headline continuous-tape acceptance number (design §6.3).
+     */
+    void addRegimeEvent(RegimeEvent event) {
+        switch (event.kind()) {
+            case FUSION_ONSET -> fusedRegimeCount++;
+            case CALM_ONSET -> calmOnsetCount++;
+            case OPEN_AT_EOF -> regimeOpenAtEof = true;
+        }
+    }
+
     long count(Severity s) {
         return bySeverity.getOrDefault(s, 0L);
+    }
+
+    /** Fused-regime cycles opened this run (fusion onsets) — the continuous-tape headline (design §6.3). */
+    long fusedRegimeCount() {
+        return fusedRegimeCount;
+    }
+
+    /** Calm onsets (all-clears) this run — the down-crossings that closed a fused regime. */
+    long calmOnsetCount() {
+        return calmOnsetCount;
+    }
+
+    /** Whether a fused regime was still open at the tape end (reported, not force-closed). */
+    boolean regimeOpenAtEof() {
+        return regimeOpenAtEof;
     }
 
     /** Epochs the adaptive source opened on a live detector (drift, σ-guard or timeout re-baselines). */

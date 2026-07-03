@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -30,6 +31,32 @@ class RunDigestTest {
         assertEquals(1.0, d.maxActivation(), 1e-12);
         assertEquals(2.0, d.maxAbsZ(), 1e-12);
         assertEquals(1, d.timeInFused());   // only the density>=0.999 transition
+    }
+
+    @Test
+    void addRegimeEvent_CountsFusedRegimesAllClearsAndOpenAtEof() {
+        RunDigest d = new RunDigest();
+        Instant onset = Instant.parse("2020-02-24T00:00:00Z");
+        d.addRegimeEvent(new RegimeEvent(onset, RegimeEventKind.FUSION_ONSET, 0.95, 0.7, onset));
+        d.addRegimeEvent(new RegimeEvent(Instant.parse("2020-04-23T00:00:00Z"),
+                RegimeEventKind.CALM_ONSET, 0.4, 0.1, onset));
+        Instant onset2 = Instant.parse("2024-09-01T00:00:00Z");
+        d.addRegimeEvent(new RegimeEvent(onset2, RegimeEventKind.FUSION_ONSET, 0.9, 0.5, onset2));
+        d.addRegimeEvent(new RegimeEvent(Instant.parse("2024-10-04T00:00:00Z"),
+                RegimeEventKind.OPEN_AT_EOF, 0.9, Double.NaN, onset2));
+
+        assertEquals(2, d.fusedRegimeCount());
+        assertEquals(1, d.calmOnsetCount());
+        assertTrue(d.regimeOpenAtEof());
+    }
+
+    @Test
+    void addRegimeEvent_NoEvents_ReportsZeroAndNotOpen() {
+        RunDigest d = new RunDigest();
+
+        assertEquals(0, d.fusedRegimeCount());
+        assertEquals(0, d.calmOnsetCount());
+        assertFalse(d.regimeOpenAtEof());
     }
 
     @Test

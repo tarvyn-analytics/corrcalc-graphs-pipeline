@@ -34,8 +34,13 @@ public final class NdjsonObserver implements PipelineObserver {
      * v3: the {@code calibEvent} record (adaptive lifecycle), epoch provenance on {@code config}
      * ({@code epochId}, {@code calibSourceFrom/To}), and the digest's {@code epochsOpened} /
      * {@code recalibrations} / {@code muJourney} block (H2 PR-6).
+     * v4 (H2R-2): the regime-backbone fire mode — the {@code regime} record (a regime-state edge:
+     * fusion onset / calm onset / open-at-EOF, with the smoothed density, crossing confidence and
+     * fused dwell) and the digest's {@code fusedRegimeCount} / {@code calmOnsets} /
+     * {@code regimeOpenAtEof} block. On the continuous tape a {@code FUSION} is now a regime onset,
+     * not a CUSUM breach, so a consumer must read the schema.
      */
-    public static final int SCHEMA = 3;
+    public static final int SCHEMA = 4;
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -89,6 +94,15 @@ public final class NdjsonObserver implements PipelineObserver {
         }
         digest.addCalibrationEvent(event);
         emit(calibEventRecord(event));
+    }
+
+    @Override
+    public void onRegimeEvent(RegimeEvent event) {
+        if (event == null) {
+            throw new IllegalArgumentException("event must not be null");
+        }
+        digest.addRegimeEvent(event);
+        emit(regimeRecord(event));
     }
 
     private void emit(String line) {
@@ -209,6 +223,28 @@ public final class NdjsonObserver implements PipelineObserver {
     }
 
     /**
+     * One {@code regime} record — a regime-state edge on the continuous-tape backbone (H2R-2): the
+     * bounded {@link RegimeEventKind kind}, the smoothed density and crossing confidence at the edge,
+     * the paired fusion onset, and the fused dwell in days (0 at an onset). A {@code FUSION_ONSET} is a
+     * fusion, a {@code CALM_ONSET} the all-clear, an {@code OPEN_AT_EOF} a regime still fused at tape end.
+     *
+     * @param e the regime edge
+     * @return the regime record as a single JSON object
+     */
+    public static String regimeRecord(RegimeEvent e) {
+        ObjectNode n = MAPPER.createObjectNode();
+        n.put("rec", "regime");
+        n.put("schema", SCHEMA);
+        n.put("asOf", e.asOf().toString());
+        n.put("kind", e.kind().name());
+        putNum(n, "density", e.smoothedDensity());
+        putNum(n, "confidence", e.confidence());
+        n.put("regimeOnset", e.regimeOnset().toString());
+        n.put("fusedDwellDays", e.fusedDwell().toDays());
+        return n.toString();
+    }
+
+    /**
      * The terminal {@code digest} record — the run folded into one object: counts by severity, the peak
      * activation and σ-move, the single biggest move (and when), fired/published, and a time-in-fused
      * proxy. The counts are over the observations this observer received (see {@link RunDigest}).
@@ -258,6 +294,11 @@ public final class NdjsonObserver implements PipelineObserver {
         }
         n.put("epochsOpened", d.epochsOpened());
         n.put("recalibrations", d.recalibrations());
+        // The H2R-2 regime-backbone acceptance block (design §6.3): fused-regime cycles, all-clears,
+        // and whether a regime was still open at the tape end.
+        n.put("fusedRegimeCount", d.fusedRegimeCount());
+        n.put("calmOnsets", d.calmOnsetCount());
+        n.put("regimeOpenAtEof", d.regimeOpenAtEof());
         if (Double.isNaN(d.muLastAfter())) {
             n.putNull("muJourney");
         } else {
