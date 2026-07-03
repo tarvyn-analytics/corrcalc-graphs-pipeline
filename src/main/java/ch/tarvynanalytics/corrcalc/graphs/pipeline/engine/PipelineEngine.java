@@ -334,6 +334,8 @@ public final class PipelineEngine {
         // daily-density Schmitt trigger is the fire and the CUSUM path (below) is demoted to annotation.
         private final RegimeSeries.DailyAggregator regimeAgg;
         private final RegimeDetector regimeDetector;
+        private final double regimeHi;    // the Schmitt high mark — the pipeline owns it, for confidence
+        private final double regimeLo;    // the Schmitt low mark
 
         private double[][] prev;
         private double[][] detectPrev;
@@ -370,9 +372,13 @@ public final class PipelineEngine {
             if (b.regime != null) {
                 this.regimeAgg = new RegimeSeries.DailyAggregator(b.regime.smoothWindow());
                 this.regimeDetector = RegimeDetectors.create(b.regime.regime());
+                this.regimeHi = b.regime.regime().hi();
+                this.regimeLo = b.regime.regime().lo();
             } else {
                 this.regimeAgg = null;
                 this.regimeDetector = null;
+                this.regimeHi = Double.NaN;
+                this.regimeLo = Double.NaN;
             }
         }
 
@@ -425,7 +431,7 @@ public final class PipelineEngine {
          * observability marker, so it is forwarded but never published).
          */
         private void emitRegimeEdge(Instant day, RegimeEventKind kind, double level, Instant onset) {
-            observer.onRegimeEvent(new RegimeEvent(day, kind, level, onset));
+            observer.onRegimeEvent(new RegimeEvent(day, kind, level, confidenceFor(kind, level), onset));
             if (kind == RegimeEventKind.OPEN_AT_EOF) {
                 return;
             }
@@ -434,6 +440,28 @@ public final class PipelineEngine {
             if (publisher.publish(signal).isPresent()) {
                 published++;
             }
+        }
+
+        /**
+         * How decisive a regime crossing was, in {@code [0, 1]}: the margin past the mark normalised by
+         * the room beyond it — {@code (level−hi)/(1−hi)} at a fusion onset, {@code (lo−level)/lo} at a
+         * calm onset (0 at the mark, 1 at a saturated / empty graph). This is the pipeline's reporting
+         * choice (it owns the marks); the GAL trigger never computes it. {@code NaN} for an open-at-EOF
+         * marker (no crossing happened).
+         */
+        private double confidenceFor(RegimeEventKind kind, double level) {
+            return switch (kind) {
+                case FUSION_ONSET -> clamp01((level - regimeHi) / (1.0 - regimeHi));
+                case CALM_ONSET -> clamp01((regimeLo - level) / Math.max(regimeLo, 1e-9));
+                case OPEN_AT_EOF -> Double.NaN;
+            };
+        }
+
+        private static double clamp01(double v) {
+            if (Double.isNaN(v)) {
+                return Double.NaN;
+            }
+            return Math.max(0.0, Math.min(1.0, v));
         }
 
         /** A product signal for a regime edge: the smoothed density is the level; CUSUM fields are N/A. */

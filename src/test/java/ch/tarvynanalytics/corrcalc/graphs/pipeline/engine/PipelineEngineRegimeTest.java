@@ -62,6 +62,10 @@ class PipelineEngineRegimeTest {
         assertEquals(day(5), regime.get(0).asOf(), "fusion onset on the 3rd fused day");
         assertEquals(day(9), regime.get(1).asOf(), "all-clear on the 3rd calm day");
         assertEquals(day(5), regime.get(1).regimeOnset(), "the all-clear pairs back to its onset");
+        // Confidence is the crossing margin normalised: density 1.0 vs hi 0.85 → (1-.85)/(1-.85)=1;
+        // density 0.0 vs lo 0.45 → (.45-0)/.45 = 1. Both maximally decisive on this clean synthetic tape.
+        assertEquals(1.0, regime.get(0).confidence(), 1e-9, "a saturated onset is maximally decisive");
+        assertEquals(1.0, regime.get(1).confidence(), 1e-9, "an empty-graph all-clear is maximally decisive");
 
         RunSummary s = engine.summary();
         assertEquals(2L, s.fires(), "two regime edges fired");
@@ -87,6 +91,7 @@ class PipelineEngineRegimeTest {
         RegimeEvent open = regime.get(1);
         assertEquals(day(5), open.regimeOnset(), "the open regime keeps its onset");
         assertTrue(open.fusedDwell().toDays() >= 2, "the open regime carries its fused dwell");
+        assertTrue(Double.isNaN(open.confidence()), "an open-at-EOF marker has no crossing confidence");
     }
 
     @Test
@@ -140,6 +145,27 @@ class PipelineEngineRegimeTest {
         assertTrue(regime.isEmpty(), "one UTC day is a single daily sample: no regime edge opens");
         assertEquals(0, sink.count(), "the demoted CUSUM fire never reaches the product fire-stream");
         assertEquals(0L, engine.summary().published());
+    }
+
+    @Test
+    void regimeMode_DegenerateHiOfOne_ReportsNaNConfidenceNotABogusNumber() {
+        // A valid config allows hi=1.0 (RegimeConfig only requires lo < hi <= finite). Then a fusion
+        // onset's margin is (level−hi)/(1−hi) = 0/0 = NaN: confidence is reported NaN rather than a
+        // fabricated value — exercising the clamp01 NaN guard the fences never otherwise reach.
+        RegimeTimescaleConfig degenerate =
+                new RegimeTimescaleConfig(new RegimeConfig(1.0, 0.45, 3), 1);
+        CollectingSink sink = new CollectingSink();
+        List<RegimeEvent> regime = new ArrayList<>();
+        PipelineEngine engine = PipelineEngine.builder(syms(4), CFG).calmBars(6)
+                .market("crypto").timescale("intraday").sink(sink).observer(collect(regime))
+                .regime(degenerate).build();
+
+        driveDays(engine, new boolean[]{false, false, false, true, true, true}, 13L);
+        engine.finish();
+
+        assertEquals(RegimeEventKind.FUSION_ONSET, regime.get(0).kind());
+        assertTrue(Double.isNaN(regime.get(0).confidence()),
+                "hi=1.0 leaves no room past the mark → NaN confidence, not a bogus number");
     }
 
     @Test

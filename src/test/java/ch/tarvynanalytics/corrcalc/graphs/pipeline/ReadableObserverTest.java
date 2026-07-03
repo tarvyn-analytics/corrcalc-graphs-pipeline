@@ -15,6 +15,42 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ReadableObserverTest {
 
     @Test
+    void regimeEventLine_CalmOnset_ShowsPhraseDensityConfidenceAndDwell() {
+        String line = ReadableObserver.regimeEventLine(new RegimeEvent(
+                Instant.parse("2021-11-07T00:00:00Z"), RegimeEventKind.CALM_ONSET, 0.42, 0.07,
+                Instant.parse("2021-04-19T00:00:00Z")));
+
+        assertTrue(line.contains("REGIME"), line);
+        assertTrue(line.contains(RegimeEventKind.CALM_ONSET.phrase()), line);
+        assertTrue(line.contains("density=0.42"), line);
+        assertTrue(line.contains("confidence=0.07"), line);
+        assertTrue(line.contains("fused=202d"), line);
+    }
+
+    @Test
+    void regimeEventLine_FusionOnset_OmitsDwell() {
+        Instant onset = Instant.parse("2020-02-24T00:00:00Z");
+        String line = ReadableObserver.regimeEventLine(new RegimeEvent(
+                onset, RegimeEventKind.FUSION_ONSET, 0.95, 0.67, onset));
+
+        assertTrue(line.contains(RegimeEventKind.FUSION_ONSET.phrase()), line);
+        assertFalse(line.contains("fused="), line);
+    }
+
+    @Test
+    void onRegimeEvent_LogsTheEdgeAndRejectsNull() {
+        ReadableObserver observer = new ReadableObserver();
+        Instant onset = Instant.parse("2020-02-24T00:00:00Z");
+
+        // drives the instance SPI (fold into the digest + log the fixed-phrase line)
+        observer.onRegimeEvent(new RegimeEvent(onset, RegimeEventKind.FUSION_ONSET, 0.95, 0.67, onset));
+        observer.onRegimeEvent(new RegimeEvent(Instant.parse("2020-04-23T00:00:00Z"),
+                RegimeEventKind.CALM_ONSET, 0.4, 0.11, onset));
+
+        assertThrows(IllegalArgumentException.class, () -> observer.onRegimeEvent(null));
+    }
+
+    @Test
     void legend_DefinesTheFields() {
         String legend = ReadableObserver.legend();
         assertTrue(legend.contains("LEGEND"));
