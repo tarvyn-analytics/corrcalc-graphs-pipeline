@@ -349,10 +349,50 @@ class AdaptiveQuietnessGateTest {
         return naiveMedian(deviations);
     }
 
+    @Test
+    void sigmaFloor_LiftsACollapsedTrailingSigmaTowardTheLongWindow() {
+        // Q3 σ-floor (H2R-1 amendment, design §5.2/§7): a brief flat calm patch collapses the 4-bar
+        // trailing MAD to the ε floor, but the 12-bar reference window still carries the 0↔6 swing
+        // (sample σ = sqrt(72/11) ≈ 2.558), so the floor lifts σ̂ to 0.5·σ_ref ≈ 1.279 — the RUN-1
+        // calm-metronome guard. Off (frac=0) the same tape leaves σ̂ at ε, byte-for-byte pre-Q3.
+        // ref: sum=36, sumSq=180, var=(180−36²/12)/11 = 72/11 over the 12 admitted bars.
+        AdaptiveCalibrationConfig floored =
+                new AdaptiveCalibrationConfig(2, 1e9, 0, 0.25, 1e6, 1e-6, 1e6, 1_000_000, 4, 0.5, 12);
+        AdaptiveCalibrationConfig off =
+                new AdaptiveCalibrationConfig(2, 1e9, 0, 0.25, 1e6, 1e-6, 1e6, 1_000_000, 4);
+        double[] cs = {0, 6, 0, 6, 0, 6, 0, 6, 3, 3, 3, 3};
+
+        AdaptiveCalibration on = feedSeries(floored, cs);
+        AdaptiveCalibration bare = feedSeries(off, cs);
+
+        assertEquals(DETECTOR.epsilonSigma(), bare.sigmaHat(), EPS,
+                "floor off: the flat trailing window collapses to the ε floor");
+        assertEquals(0.5 * Math.sqrt(72.0 / 11.0), on.sigmaHat(), 1e-9,
+                "floor on: σ̂ lifted to 0.5·σ_ref over the 12-bar reference window");
+        assertTrue(on.sigmaHat() > bare.sigmaHat(), "the relative floor strictly lifts the collapsed σ̂");
+    }
+
+    @Test
+    void config_RejectsNegativeFloorFracAndTinyRefWindow() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new AdaptiveCalibrationConfig(2, 2.5, 0, 0.25, 5.0, 0.5, 2.0, 90, 45, -0.1, 30));
+        assertThrows(IllegalArgumentException.class,
+                () -> new AdaptiveCalibrationConfig(2, 2.5, 0, 0.25, 5.0, 0.5, 2.0, 90, 45, 0.5, 1));
+    }
+
     // ---- fixtures ----
 
     private static AdaptiveCalibration source(AdaptiveCalibrationConfig config) {
         return new AdaptiveCalibration(config, DETECTOR, null);
+    }
+
+    /** Feeds a raw weighted-change series (constant calm density) and returns the source. */
+    private static AdaptiveCalibration feedSeries(AdaptiveCalibrationConfig config, double[] cs) {
+        AdaptiveCalibration source = new AdaptiveCalibration(config, DETECTOR, null);
+        for (int i = 0; i < cs.length; i++) {
+            source.observe(at(i), cs[i], CALM_DENSITY);
+        }
+        return source;
     }
 
     /** Benign drift constants: the meta-monitor and σ-guard can never interfere with a gate test. */
