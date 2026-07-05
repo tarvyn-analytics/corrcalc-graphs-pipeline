@@ -52,6 +52,14 @@ final class AdaptiveCalibration implements CalibrationSource {
     private int rawCount;
     private int rawHead;
 
+    // Q3 σ-floor: a long admitted-c reference window (running sum/sumSq for an O(1) sample σ), used to
+    // floor σ̂ at sigmaFloorFrac·σ_ref so a brief calm patch can't collapse the yardstick. Null when off.
+    private final double[] cRef;
+    private double refSum;
+    private double refSumSq;
+    private int refCount;
+    private int refHead;
+
     private boolean live;
     private boolean promotedOnce;
     private long epochId;
@@ -93,6 +101,7 @@ final class AdaptiveCalibration implements CalibrationSource {
         this.tAdmitted = new Instant[m];
         this.cRaw = new double[m];
         this.dRaw = new double[m];
+        this.cRef = config.sigmaFloorFrac() > 0.0 ? new double[config.sigmaRefWindow()] : null;
         if (prior != null) {
             this.epoch = prior.calibration();
             this.epochId = prior.epochId();
@@ -196,6 +205,7 @@ final class AdaptiveCalibration implements CalibrationSource {
 
     private void admit(Instant asOf, double c, double d) {
         barsSinceAdmission = 0;
+        pushRef(c);
         cAdmitted[admittedHead] = c;
         dAdmitted[admittedHead] = d;
         tAdmitted[admittedHead] = asOf;
@@ -310,7 +320,7 @@ final class AdaptiveCalibration implements CalibrationSource {
         meanHat = mean(c);
         stdHat = floored(sampleStd(c, meanHat));
         muHat = RobustStats.median(c);
-        sigmaHat = floored(RobustStats.MAD_TO_SIGMA * RobustStats.mad(c, muHat));
+        sigmaHat = sigmaFloored(floored(RobustStats.MAD_TO_SIGMA * RobustStats.mad(c, muHat)));
         levelHat = RobustStats.nearestRankPercentile(d, detectorConfig.levelPctile());
         muDensityHat = RobustStats.median(d);
         sigmaDensityHat = floored(RobustStats.MAD_TO_SIGMA * RobustStats.mad(d, muDensityHat));
@@ -332,6 +342,39 @@ final class AdaptiveCalibration implements CalibrationSource {
     /** The exact existing degenerate-calm floor (spec 2.5): a zero spread flips to {@code epsilonSigma}. */
     private double floored(double sigma) {
         return sigma == 0.0 ? detectorConfig.epsilonSigma() : sigma;
+    }
+
+    /**
+     * The Q3 relative σ-floor (spec H2R-1 Q3): floor the trailing σ̂ at {@code sigmaFloorFrac} of a
+     * long-window reference σ, so a brief calm patch cannot collapse the yardstick into the
+     * calm-regime fire metronome (RUN-1 failure mode 2). A no-op when the floor is disabled
+     * ({@code cRef == null}) or the reference window has fewer than two admitted bars.
+     */
+    private double sigmaFloored(double sigma) {
+        if (cRef == null || refCount < 2) {
+            return sigma;
+        }
+        double variance = (refSumSq - refSum * refSum / refCount) / (refCount - 1);
+        double sigmaRef = variance > 0.0 ? Math.sqrt(variance) : 0.0;
+        return Math.max(sigma, config.sigmaFloorFrac() * sigmaRef);
+    }
+
+    /** Pushes one admitted weighted-change into the long σ-reference ring, keeping running sum/sumSq O(1). */
+    private void pushRef(double c) {
+        if (cRef == null) {
+            return;
+        }
+        if (refCount == cRef.length) {
+            double evicted = cRef[refHead];
+            refSum -= evicted;
+            refSumSq -= evicted * evicted;
+        } else {
+            refCount++;
+        }
+        cRef[refHead] = c;
+        refSum += c;
+        refSumSq += c * c;
+        refHead = (refHead + 1) % cRef.length;
     }
 
     private static double mean(double[] values) {

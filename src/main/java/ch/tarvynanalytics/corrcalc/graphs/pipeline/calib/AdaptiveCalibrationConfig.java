@@ -19,6 +19,14 @@ package ch.tarvynanalytics.corrcalc.graphs.pipeline.calib;
  *                               fallback, spec 2.5)
  * @param trailingWindowBars     {@code M} — the robust median/MAD estimator's admitted-bar window
  *                               (spec 2.2)
+ * @param sigmaFloorFrac         {@code Q3 σ-floor}: floor the trailing σ̂ at this fraction of a
+ *                               long-window reference σ (spec H2R-1 Q3) so a brief calm patch cannot
+ *                               collapse the CUSUM yardstick into the calm-regime fire metronome
+ *                               (RUN-1 failure mode 2). {@code 0} disables the relative floor (the
+ *                               exact pre-Q3 behaviour); the settled crypto value is {@code 0.5}
+ * @param sigmaRefWindow         the admitted-bar window over which the reference σ is measured
+ *                               ({@code >= 2}; the settled crypto ≈ 30 days). Ignored when
+ *                               {@code sigmaFloorFrac == 0}
  */
 public record AdaptiveCalibrationConfig(
         int warmupBars,
@@ -29,7 +37,22 @@ public record AdaptiveCalibrationConfig(
         double driftSigmaRatioLo,
         double driftSigmaRatioHi,
         int regimeShiftTimeoutBars,
-        int trailingWindowBars) {
+        int trailingWindowBars,
+        double sigmaFloorFrac,
+        int sigmaRefWindow) {
+
+    /**
+     * The pre-Q3 constructor: the relative σ-floor disabled ({@code sigmaFloorFrac == 0}), behaviour
+     * byte-for-byte identical to before the floor existed. Kept so existing callers and tests are
+     * unaffected; the crypto factories opt into the floor via the canonical constructor.
+     */
+    public AdaptiveCalibrationConfig(int warmupBars, double learnThreshold, int coolDownBars,
+                                     double driftDelta, double driftLambda, double driftSigmaRatioLo,
+                                     double driftSigmaRatioHi, int regimeShiftTimeoutBars,
+                                     int trailingWindowBars) {
+        this(warmupBars, learnThreshold, coolDownBars, driftDelta, driftLambda, driftSigmaRatioLo,
+                driftSigmaRatioHi, regimeShiftTimeoutBars, trailingWindowBars, 0.0, 2);
+    }
 
     /** Validates the knobs, throwing {@link IllegalArgumentException} with the offending value bracketed. */
     public AdaptiveCalibrationConfig {
@@ -66,25 +89,35 @@ public record AdaptiveCalibrationConfig(
             throw new IllegalArgumentException("warmupBars must be <= trailingWindowBars ["
                     + warmupBars + " > " + trailingWindowBars + "]");
         }
+        if (!(sigmaFloorFrac >= 0.0)) {
+            throw new IllegalArgumentException("sigmaFloorFrac must be >= 0 [" + sigmaFloorFrac + "]");
+        }
+        if (sigmaRefWindow < 2) {
+            throw new IllegalArgumentException("sigmaRefWindow must be >= 2 [" + sigmaRefWindow + "]");
+        }
     }
 
     /**
      * The crypto intraday defaults (1-min cadence): 24 h warm-up, 48 h freeze/estimator windows
-     * matched to the recovery-gauge scale, 14-day starvation timeout (numerics spec §0).
+     * matched to the recovery-gauge scale, 14-day starvation timeout (numerics spec §0). The Q3
+     * σ-floor is enabled ({@code frac=0.5} over a {@code 43200}-bar ≈ 30-day reference window) — the
+     * one universe-independent H2R-1 amendment, hardening the demoted CUSUM annotation against the
+     * calm-regime fire metronome (design §5.2, §7).
      *
      * @return the intraday tuning
      */
     public static AdaptiveCalibrationConfig cryptoIntraday() {
-        return new AdaptiveCalibrationConfig(1440, 2.5, 2880, 0.25, 5.0, 0.5, 2.0, 20160, 2880);
+        return new AdaptiveCalibrationConfig(1440, 2.5, 2880, 0.25, 5.0, 0.5, 2.0, 20160, 2880, 0.5, 43200);
     }
 
     /**
      * The crypto daily defaults: the validated 45-bar calm-block length as both warm-up and
-     * estimator window, 90-day starvation timeout (numerics spec §0).
+     * estimator window, 90-day starvation timeout (numerics spec §0). The Q3 σ-floor is enabled
+     * ({@code frac=0.5} over a 30-bar ≈ 30-day reference window).
      *
      * @return the daily tuning
      */
     public static AdaptiveCalibrationConfig cryptoDaily() {
-        return new AdaptiveCalibrationConfig(45, 2.5, 2, 0.25, 5.0, 0.5, 2.0, 90, 45);
+        return new AdaptiveCalibrationConfig(45, 2.5, 2, 0.25, 5.0, 0.5, 2.0, 90, 45, 0.5, 30);
     }
 }
