@@ -8,26 +8,29 @@ import java.util.List;
 
 /**
  * Density prep for the H2R-2 regime-state backbone (design §5.1): reduces the per-window correlation
- * {@code density} series to the <strong>daily-aggregated, centered-median-smoothed</strong> level
+ * {@code density} series to the <strong>daily-aggregated, trailing-median-smoothed</strong> level
  * series the GAL {@code RegimeStateDetector} reads. This is the market/cadence policy the pipeline
  * owns; the detector stays cadence-agnostic (it only counts samples).
  *
- * <p>The transform mirrors the H2R-1 spike ({@code h2r1_regime_model.py}) bar-for-bar:</p>
+ * <p>The transform mirrors the H2R-1 spike ({@code h2r1_regime_model.py}) bar-for-bar, with the
+ * centered-median replaced by a <strong>causal trailing median</strong>
+ * (H2R-5, {@code run3_signal.trailing_median}):</p>
  * <ol>
  *   <li><strong>daily aggregation</strong> — the density values are grouped by UTC calendar day and
  *       each day becomes its mean (finite densities only; a NaN density is a data gap and does not
  *       enter the mean). Only days that carry data produce a sample (gaps collapse, exactly as the
  *       spike's {@code np.unique(day)} does); the sample is timestamped at the day's UTC midnight;</li>
- *   <li><strong>centered-median smooth</strong> — each daily level is replaced by the median of the
- *       {@code smoothWindow}-day window centered on it, clipped at both ends of the series (the spike's
- *       {@code median(dd[max(0,i-1):i+2])} for a 3-day window). An even clipped window (at the two
- *       ends) takes the mean of the two central order statistics, matching {@code numpy.median}.</li>
+ *   <li><strong>trailing-median smooth</strong> — each daily level is replaced by the median of the
+ *       {@code smoothWindow}-day window ending on it: {@code [i-(smoothWindow-1) .. i]} (left-clipped
+ *       only at the series start). Because the window never looks ahead, the smoothed level for day
+ *       {@code D} is fully determined as soon as day {@code D} finalizes — zero latency vs the
+ *       centered smooth's {@code smoothWindow/2}-day look-ahead.</li>
  * </ol>
  *
  * <p>Provided in two shapes over the identical numerics: a batch {@link #smoothedDailyLevels} for
  * offline/tested use, and a streaming {@link DailyAggregator} for the constant-memory replay engine
- * (it retains only the last {@code smoothWindow} finalized days and emits each smoothed sample with a
- * {@code smoothWindow/2}-day delay — the unavoidable latency of a <em>centered</em> smooth).</p>
+ * (it retains only the last {@code smoothWindow} finalized days and emits each smoothed sample
+ * immediately when that day finalizes — zero delay).</p>
  */
 public final class RegimeSeries {
 
@@ -39,18 +42,18 @@ public final class RegimeSeries {
      * smoothed density level (the value fed to the regime detector).
      *
      * @param day   the day's UTC-midnight instant
-     * @param level the centered-median-smoothed daily mean density
+     * @param level the trailing-median-smoothed daily mean density
      */
     public record DailyLevel(Instant day, double level) {
     }
 
     /**
      * Batch density prep: aggregate {@code density} to UTC-daily means aligned with {@code timestamps},
-     * then centered-median smooth over {@code smoothWindow} days.
+     * then trailing-median smooth over {@code smoothWindow} days.
      *
      * @param timestamps   the window-end timestamps of the density series (ascending)
      * @param density      the per-window density, parallel to {@code timestamps}
-     * @param smoothWindow the centered-median window in days ({@code >= 1}, odd)
+     * @param smoothWindow the trailing-median window in days ({@code >= 1})
      * @return the smoothed daily level series (empty when the inputs are empty)
      * @throws IllegalArgumentException if the arrays differ in length or {@code smoothWindow < 1}
      */
@@ -91,14 +94,13 @@ public final class RegimeSeries {
         return smooth(days, daily, smoothWindow);
     }
 
-    /** Centered-median smooth of a daily level series (clipped at both ends). */
+    /** Trailing-median smooth of a daily level series (left-clipped at the series start). */
     private static List<DailyLevel> smooth(List<Instant> days, List<Double> daily, int smoothWindow) {
-        int half = smoothWindow / 2;
         int n = daily.size();
         List<DailyLevel> out = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
-            int from = Math.max(0, i - half);
-            int to = Math.min(n - 1, i + half);
+            int from = Math.max(0, i - (smoothWindow - 1));
+            int to = i;
             out.add(new DailyLevel(days.get(i), median(daily, from, to)));
         }
         return out;
@@ -132,45 +134,45 @@ public final class RegimeSeries {
 
     /**
      * The streaming counterpart of {@link #smoothedDailyLevels}: fed the per-window density stream one
-     * sample at a time, it aggregates to UTC-daily means and emits centered-median-smoothed daily levels
-     * as they become computable (each with a {@code smoothWindow/2}-day delay). It retains only the last
-     * {@code smoothWindow} finalized daily means — constant memory in the tape length — and reproduces
-     * {@link #smoothedDailyLevels} exactly over the same input (a rollover finalizes the previous day;
-     * {@link #flush()} finalizes the open day and drains the right-clipped tail).
+     * sample at a time, it aggregates to UTC-daily means and emits trailing-median-smoothed daily levels
+     * as soon as each day finalizes (zero delay — the trailing window {@code [D-(W-1)..D]} is fully
+     * known the moment day {@code D} finalizes). It retains only the last {@code smoothWindow} finalized
+     * daily means — constant memory in the tape length — and reproduces {@link #smoothedDailyLevels}
+     * exactly over the same input (a rollover finalizes the previous day;
+     * {@link #flush()} finalizes the open day and emits it).
      *
      * <p>Single-writer, like the engine that drives it.</p>
      */
     public static final class DailyAggregator {
 
         private final int smoothWindow;
-        private final int half;
         private final List<Instant> dayBuf = new ArrayList<>();   // last <= smoothWindow finalized day instants
         private final List<Double> levelBuf = new ArrayList<>();  // last <= smoothWindow finalized daily means
         private LocalDate currentDay;
         private double sum;
         private int count;
         private int finalizedCount;   // total days finalized so far (absolute index of the next finalize)
-        private int emittedCount;     // total smoothed samples emitted so far (absolute index of the next emit)
+        private int emittedCount;     // total smoothed samples emitted so far (matches finalizedCount after each finalize)
         private boolean flushed;
 
         /**
-         * @param smoothWindow the centered-median window in days ({@code >= 1}, odd)
+         * @param smoothWindow the trailing-median window in days ({@code >= 1})
          */
         public DailyAggregator(int smoothWindow) {
             if (smoothWindow < 1) {
                 throw new IllegalArgumentException("smoothWindow must be >= 1 [" + smoothWindow + "]");
             }
             this.smoothWindow = smoothWindow;
-            this.half = smoothWindow / 2;
         }
 
         /**
          * Folds one per-window density sample into the current UTC day; when it crosses into a new UTC
-         * day it finalizes the previous day and returns any smoothed daily levels that became computable.
+         * day it finalizes the previous day and returns the smoothed daily level for that day
+         * (immediately computable — no delay under a trailing smooth).
          *
          * @param asOf    the window-end timestamp
          * @param density the window density (a non-finite value is a gap and does not enter the mean)
-         * @return the smoothed daily levels newly emitted by this sample (usually empty; one per day roll)
+         * @return the smoothed daily level for the finalized day, or empty list (within the same day)
          */
         public List<DailyLevel> onDensity(Instant asOf, double density) {
             if (flushed) {
@@ -181,7 +183,7 @@ public final class RegimeSeries {
             if (currentDay == null) {
                 currentDay = day;
             } else if (!day.equals(currentDay)) {
-                emitted = finalizeDay(false);
+                emitted = finalizeDay();
                 currentDay = day;
             }
             if (Double.isFinite(density)) {
@@ -192,10 +194,9 @@ public final class RegimeSeries {
         }
 
         /**
-         * Finalizes the open day and drains every remaining smoothed daily level (the last
-         * {@code smoothWindow/2} samples, whose centered window is right-clipped at the series end).
+         * Finalizes the open day and emits its smoothed daily level.
          *
-         * @return the smoothed daily levels for the tail of the series
+         * @return the smoothed daily level for the last (open) day
          */
         public List<DailyLevel> flush() {
             if (flushed) {
@@ -203,18 +204,18 @@ public final class RegimeSeries {
             }
             List<DailyLevel> out = new ArrayList<>();
             if (currentDay != null) {
-                out.addAll(finalizeDay(true));
+                out.addAll(finalizeDay());
             }
             flushed = true;
             return out;
         }
 
-        private List<DailyLevel> finalizeDay(boolean atEof) {
+        private List<DailyLevel> finalizeDay() {
             pushDay(midnight(currentDay), count > 0 ? sum / count : Double.NaN);
             finalizedCount++;
             sum = 0.0;
             count = 0;
-            return emitReady(atEof);
+            return emitReady();
         }
 
         private void pushDay(Instant day, double level) {
@@ -227,19 +228,16 @@ public final class RegimeSeries {
         }
 
         /**
-         * Emits every centered-median sample whose window is fully known: during the stream, indices up
-         * to {@code (finalizedCount-1) - half} (the right edge is available); at EOF, the remaining
-         * indices up to {@code finalizedCount-1} with the window right-clipped at the series end.
+         * Under the trailing smooth, every finalized day's smoothed level is immediately computable
+         * (its window {@code [D-(W-1)..D]} is fully known). Emits one sample per finalized day.
          */
-        private List<DailyLevel> emitReady(boolean atEof) {
-            int lastIdx = finalizedCount - 1;
-            int target = atEof ? lastIdx : lastIdx - half;
+        private List<DailyLevel> emitReady() {
             List<DailyLevel> out = new ArrayList<>();
             int frontIdx = finalizedCount - levelBuf.size();
-            while (emittedCount <= target) {
+            while (emittedCount < finalizedCount) {
                 int i = emittedCount;
-                int from = Math.max(0, i - half);
-                int to = Math.min(lastIdx, i + half);
+                int from = Math.max(0, i - (smoothWindow - 1));
+                int to = i;
                 out.add(new DailyLevel(dayBuf.get(i - frontIdx), medianAbs(from, to, frontIdx)));
                 emittedCount++;
             }

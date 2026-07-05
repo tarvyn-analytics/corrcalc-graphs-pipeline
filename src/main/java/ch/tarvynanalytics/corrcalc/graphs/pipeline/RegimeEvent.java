@@ -15,7 +15,11 @@ import java.time.Instant;
  * <p>The heavier "confidence/label" reporting (design §3) is layered on this by the observability
  * stage (PR-4), not baked into the detector; this record carries only detector-level facts.</p>
  *
- * @param asOf            the UTC-midnight timestamp of the day the edge was confirmed on
+ * @param asOf            the UTC-midnight timestamp of the day the edge was confirmed on — under
+ *                        the causal (trailing) smooth, a {@link RegimeEventKind#FUSION_ONSET} or
+ *                        {@link RegimeEventKind#CALM_ONSET} stamped {@code asOf=D} is knowable at
+ *                        the <em>end</em> of day D (the trailing window {@code [D-(W-1)..D]} is
+ *                        fully determined when D finalizes; no look-ahead required)
  * @param kind           which edge this is (fusion onset / calm onset / still-open-at-EOF)
  * @param smoothedDensity the daily-smoothed density level at the edge (the value the trigger read)
  * @param confidence      how decisive the crossing was, in {@code [0, 1]} — the margin past the mark

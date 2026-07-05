@@ -605,9 +605,9 @@ public final class PipelineEngine {
         }
 
         /**
-         * End-of-stream: flush the daily aggregator so the trailing days are read (their smoothed level
-         * emitted with the centered-median delay), step the trigger over them, then — if the regime is
-         * still fused — report it open at EOF instead of force-closing it (design §8.5). Idempotent.
+         * End-of-stream: flush the daily aggregator so the open day is finalized and its trailing-median
+         * smoothed level is emitted, step the trigger over it, then — if the regime is still fused —
+         * report it open at EOF instead of force-closing it (design §8.5). Idempotent.
          */
         void finish() {
             if (!regimeMode() || finished) {
