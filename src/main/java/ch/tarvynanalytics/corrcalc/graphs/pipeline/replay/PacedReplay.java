@@ -191,6 +191,15 @@ public final class PacedReplay {
         if (opts.saveCalibration() == null) {
             return;
         }
+        if (ReplayOptions.REGIME.equals(opts.fireMode())) {
+            // CGP-28: under the regime-backbone fire mode the persisted artifact would belong to the
+            // demoted CUSUM annotation, not the regime product — and its final epoch leaves the source
+            // window unstamped, so CalibrationArtifact validation would throw after the run completes.
+            // Saving it is meaningless for the regime backbone, so skip it cleanly (do not throw).
+            LOG.warn("not saving calibration artifact under --fire-mode regime: the artifact belongs to "
+                    + "the demoted CUSUM annotation, not the regime backbone [{}]", opts.saveCalibration());
+            return;
+        }
         if (!engine.isCalibrated()) {
             LOG.warn("not saving calibration artifact: the run ended before the detector calibrated");
             return;

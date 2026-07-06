@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -114,6 +116,30 @@ class PacedReplayTest {
         assertEquals(0L, summary.detectionPoints(), "never promoted: nothing is scored");
         assertEquals(0L, summary.fires());
         assertEquals(0, sink.count());
+    }
+
+    @Test
+    void stream_RegimeFireModeWithSaveCalibration_SkipsArtifactCleanlyWithoutThrowing(@TempDir Path work) {
+        // CGP-28: under --fire-mode regime the persisted artifact would belong to the demoted CUSUM
+        // annotation, whose final epoch leaves its source window unstamped — persisting it threw
+        // ("source window must be stamped [null, null]") after the run completed. The fix skips the
+        // save cleanly under regime mode: the run completes without throwing and writes no artifact.
+        Path artifactPath = work.resolve("final-calibration.json");
+        ReturnPanel panel = panel(160, 24, 4, 42L);
+        CollectingSink sink = new CollectingSink();
+
+        RunSummary summary = PacedReplay.stream(panel, CFG, regimeOptions(artifactPath), sink,
+                PipelineObserver.noOp(), ObservationPolicy.all(), ReplayClock.noSleep());
+
+        assertNotNull(summary, "the regime run completes without throwing on the save-calibration step");
+        assertFalse(java.nio.file.Files.exists(artifactPath),
+                "the calibration artifact is skipped (not written) under regime fire mode");
+    }
+
+    private static ReplayOptions regimeOptions(Path saveCalibration) {
+        return new ReplayOptions("synthetic", "crypto", "intraday",
+                1000.0, 0L, null, null, 1000, null, null, null, "leading-warmup", null, saveCalibration,
+                ReplayOptions.REGIME, false);
     }
 
     private static ReplayOptions options(Integer calmBars) {
