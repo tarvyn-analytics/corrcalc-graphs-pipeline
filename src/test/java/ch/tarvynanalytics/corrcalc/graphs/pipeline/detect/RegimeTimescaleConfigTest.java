@@ -30,9 +30,9 @@ class RegimeTimescaleConfigTest {
     }
 
     @Test
-    void evenSmoothWindow_Throws() {
-        // a centered median needs a symmetric (odd) window
-        assertThrows(IllegalArgumentException.class,
-                () -> new RegimeTimescaleConfig(RegimeConfig.crypto(), 4));
+    void evenSmoothWindow_IsAllowed() {
+        // The trailing median requires no symmetric (odd) window; even windows are valid.
+        RegimeTimescaleConfig cfg = new RegimeTimescaleConfig(RegimeConfig.crypto(), 2);
+        assertEquals(2, cfg.smoothWindow());
     }
 }

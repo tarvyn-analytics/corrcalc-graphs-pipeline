@@ -19,9 +19,10 @@ import ch.tarvynanalytics.graphs.algos.RegimeConfig;
  * crypto {@code confirmBars=3} ≈ 3 days.</p>
  *
  * @param regime       the GAL Schmitt-trigger tuning (hi/lo marks + confirm run, in samples)
- * @param smoothWindow the centered-median smoothing window over the daily level series, in days
- *                     ({@code >= 1} and odd — a centered median needs a symmetric window; the spike
- *                     uses a 3-day median to kill 1-day whipsaw)
+ * @param smoothWindow the trailing-median smoothing window over the daily level series, in days
+ *                     ({@code >= 1}; the spike uses a 3-day trailing median to kill 1-day whipsaw
+ *                     while remaining fully causal — the smoothed level for day D is knowable at
+ *                     the end of D, with no look-ahead)
  */
 public record RegimeTimescaleConfig(RegimeConfig regime, int smoothWindow) {
 
@@ -33,17 +34,14 @@ public record RegimeTimescaleConfig(RegimeConfig regime, int smoothWindow) {
         if (smoothWindow < 1) {
             throw new IllegalArgumentException("smoothWindow must be >= 1 [" + smoothWindow + "]");
         }
-        if (smoothWindow % 2 == 0) {
-            throw new IllegalArgumentException("smoothWindow must be odd (a centered median needs a "
-                    + "symmetric window) [" + smoothWindow + "]");
-        }
     }
 
     /**
      * The settled crypto regime tuning: the GAL {@link RegimeConfig#crypto()} marks
-     * ({@code hi=0.85, lo=0.45, confirmBars=3}) over a <strong>3-day</strong> centered-median smooth of
-     * the daily-aggregated density — the exact density prep the H2R-1 spike validated on the DATA-1
-     * continuous 17-symbol tape (12 fused-regime cycles, calm FA 0.008/day).
+     * ({@code hi=0.85, lo=0.45, confirmBars=3}) over a <strong>3-day</strong> trailing-median smooth of
+     * the daily-aggregated density — the exact density prep the H2R-5 quant round validated on the
+     * DATA-1 continuous 17-symbol tape (13 clean fused-regime cycles, calm FA 0.003–0.008/day;
+     * each onset is knowable at the end of day D with no look-ahead).
      *
      * @return the crypto regime timescale configuration
      */
