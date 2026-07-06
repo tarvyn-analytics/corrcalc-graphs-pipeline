@@ -123,7 +123,7 @@ class PacedReplayTest {
     private static ReplayOptions options(Integer calmBars, String calibrationMode, Path artifact) {
         return new ReplayOptions("synthetic", "crypto", "intraday",
                 1000.0, 0L, calmBars, null, 1000, null, null, null, calibrationMode, artifact, null,
-                ReplayOptions.CUSUM);
+                ReplayOptions.CUSUM, false);
     }
 
     private static ReturnPanel panel(int calmRows, int fusedRows, int symbols, long seed) {

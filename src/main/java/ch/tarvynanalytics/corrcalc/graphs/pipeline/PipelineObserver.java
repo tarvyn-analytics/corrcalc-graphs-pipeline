@@ -70,6 +70,24 @@ public interface PipelineObserver {
         // default: observers that do not track the regime backbone ignore it
     }
 
+    /**
+     * Receives one smoothed daily density level from the regime-backbone density prep
+     * ({@code RegimeSeries.DailyAggregator}): the UTC-midnight day and the trailing-median-smoothed
+     * density level fed to the Schmitt trigger. Emitted only when the engine runs the
+     * regime-backbone fire mode ({@code --fire-mode regime}) <em>and</em> the run is configured to
+     * observe density records ({@code --observe density}). The default is a no-op; stateful observers
+     * that need to record or sweep the density series override it.
+     *
+     * <p>This carries the same daily level that drives the regime detector — the exact series
+     * {@code run3_sweep.py} needs to sweep the Schmitt marks without rebuilding density externally.</p>
+     *
+     * @param asOf           the UTC-midnight instant of the day this level represents
+     * @param smoothedLevel  the trailing-median-smoothed daily mean density fed to the detector
+     */
+    default void onDensityLevel(java.time.Instant asOf, double smoothedLevel) {
+        // default: observers that do not record the density series ignore it
+    }
+
     /** A sink that drops every observation — the default when a consumer wants only the fire-stream. */
     static PipelineObserver noOp() {
         return observation -> {

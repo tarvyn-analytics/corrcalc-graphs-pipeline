@@ -228,6 +228,7 @@ public final class PacedReplay {
                 .limit(opts.limit())
                 .calibrationSource(calibrationSource)
                 .regime(regimeConfigFor(opts))
+                .observeDensity(opts.observeDensity())
                 .build();
     }
 

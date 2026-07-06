@@ -245,6 +245,29 @@ public final class NdjsonObserver implements PipelineObserver {
     }
 
     /**
+     * One {@code density} record — the smoothed daily density level fed to the regime Schmitt trigger.
+     * Emitted once per finalized UTC day when {@link #onDensityLevel} is called (regime-backbone fire
+     * mode with density observation enabled). This is the primary series {@code run3_sweep.py} needs to
+     * sweep the Schmitt marks without rebuilding density externally from the raw intraday series.
+     *
+     * @param asOf          the UTC-midnight day
+     * @param smoothedLevel the trailing-median-smoothed daily mean density fed to the detector
+     * @return the density record as a single JSON object
+     */
+    public static String densityRecord(java.time.Instant asOf, double smoothedLevel) {
+        ObjectNode n = MAPPER.createObjectNode();
+        n.put("rec", "density");
+        n.put("asOf", asOf.toString());
+        putNum(n, "level", smoothedLevel);
+        return n.toString();
+    }
+
+    @Override
+    public void onDensityLevel(java.time.Instant asOf, double smoothedLevel) {
+        emit(densityRecord(asOf, smoothedLevel));
+    }
+
+    /**
      * The terminal {@code digest} record — the run folded into one object: counts by severity, the peak
      * activation and σ-move, the single biggest move (and when), fired/published, and a time-in-fused
      * proxy. The counts are over the observations this observer received (see {@link RunDigest}).

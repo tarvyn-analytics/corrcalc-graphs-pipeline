@@ -166,6 +166,56 @@ class PipelineCliTest {
     }
 
     @Test
+    void run_ObserveDensity_NdjsonEmitsDensityRecords(@TempDir Path dir) throws IOException {
+        // --observe density --fire-mode regime --style ndjson: the NDJSON stream must contain
+        // at least one density record for each finalized UTC day (the smoothed daily level fed to
+        // the Schmitt trigger).
+        String event = "demo";
+        List<String> symbols = List.of("AAA", "BBB", "CCC");
+        writeUniverse(dir, event, symbols);
+        for (int s = 0; s < symbols.size(); s++) {
+            writeDailyBars(dir, symbols.get(s), event, 40, 200L + s);
+        }
+
+        int code = run("replay", dir.toString(), "--event", event, "--market", "crypto",
+                "--timescale", "daily", "--speed", "100000", "--max-step-ms", "0",
+                "--style", "ndjson", "--fire-mode", "regime",
+                "--observe", "density");
+
+        assertEquals(0, code, err.toString(StandardCharsets.UTF_8));
+        String stdout = out.toString(StandardCharsets.UTF_8);
+        assertTrue(stdout.contains("{\"rec\":\"density\""), "density records must be in NDJSON output: " + stdout);
+        // Each density record must carry asOf and a finite level.
+        for (String line : stdout.split("\n")) {
+            if (line.contains("\"rec\":\"density\"")) {
+                assertTrue(line.contains("\"asOf\":"), "density record must carry asOf: " + line);
+                assertTrue(line.contains("\"level\":"), "density record must carry level: " + line);
+            }
+        }
+    }
+
+    @Test
+    void run_ObserveDensityWithoutRegimeMode_StillExit0(@TempDir Path dir) throws IOException {
+        // --observe density without --fire-mode regime is a no-op (no density aggregator runs);
+        // the run must complete cleanly and emit no density records.
+        String event = "demo";
+        List<String> symbols = List.of("AAA", "BBB", "CCC");
+        writeUniverse(dir, event, symbols);
+        for (int s = 0; s < symbols.size(); s++) {
+            writeDailyBars(dir, symbols.get(s), event, 24, 100L + s);
+        }
+
+        int code = run("replay", dir.toString(), "--event", event, "--market", "crypto",
+                "--timescale", "daily", "--speed", "100000", "--max-step-ms", "0",
+                "--style", "ndjson", "--observe", "density");
+
+        assertEquals(0, code, err.toString(StandardCharsets.UTF_8));
+        String stdout = out.toString(StandardCharsets.UTF_8);
+        assertFalse(stdout.contains("{\"rec\":\"density\""),
+                "no density records should appear without --fire-mode regime: " + stdout);
+    }
+
+    @Test
     void run_BadCalibrationMode_Exit2() {
         assertEquals(2, run("replay", "dir", "--event", "e", "--market", "crypto", "--calibration", "psychic"));
         assertTrue(err.toString(StandardCharsets.UTF_8).contains("calibrationMode"));

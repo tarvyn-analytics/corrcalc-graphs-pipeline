@@ -61,6 +61,6 @@ class ReplayOptionsTest {
 
     private static ReplayOptions options(String calibrationMode, Path artifact, String fireMode) {
         return new ReplayOptions("synthetic", "crypto", "intraday",
-                1000.0, 0L, null, null, 1, null, null, null, calibrationMode, artifact, null, fireMode);
+                1000.0, 0L, null, null, 1, null, null, null, calibrationMode, artifact, null, fireMode, false);
     }
 }
