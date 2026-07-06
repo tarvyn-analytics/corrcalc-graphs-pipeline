@@ -38,6 +38,10 @@ import java.time.LocalDate;
  *                            {@code "regime"} (the H2R-2 level+hysteresis regime backbone on the
  *                            daily-smoothed density — the continuous-tape fire, with the CUSUM demoted
  *                            to annotation)
+ * @param observeDensity      when {@code true}, the engine forwards each finalized smoothed daily
+ *                            density level to {@link ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObserver#onDensityLevel}
+ *                            ({@code --observe density} in the CLI; only meaningful in regime-backbone
+ *                            fire mode; enables {@code density} NDJSON records in {@code --style ndjson})
  */
 public record ReplayOptions(
         String event,
@@ -54,7 +58,8 @@ public record ReplayOptions(
         String calibrationMode,
         Path calibrationArtifact,
         Path saveCalibration,
-        String fireMode) {
+        String fireMode,
+        boolean observeDensity) {
 
     /** The pragmatic leading-prefix calibration-mode label (the "quick look" default). */
     public static final String LEADING_WARMUP = "leading-warmup";

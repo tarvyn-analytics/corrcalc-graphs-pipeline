@@ -234,6 +234,38 @@ class NdjsonObserverTest {
     }
 
     @Test
+    void densityRecord_SerializesAsOfAndLevel() throws Exception {
+        JsonNode n = MAPPER.readTree(
+                NdjsonObserver.densityRecord(Instant.parse("2020-03-12T00:00:00Z"), 0.87));
+        assertEquals("density", n.get("rec").asText());
+        assertEquals("2020-03-12T00:00:00Z", n.get("asOf").asText());
+        assertEquals(0.87, n.get("level").asDouble(), 1e-12);
+    }
+
+    @Test
+    void onDensityLevel_EmitsDensityLine() throws Exception {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        NdjsonObserver observer = new NdjsonObserver(new PrintStream(bos, true, StandardCharsets.UTF_8));
+
+        observer.onDensityLevel(Instant.parse("2021-04-22T00:00:00Z"), 0.93);
+        observer.onDensityLevel(Instant.parse("2021-04-23T00:00:00Z"), 0.91);
+
+        String[] lines = bos.toString(StandardCharsets.UTF_8).split("\n");
+        assertEquals(2, lines.length, bos.toString(StandardCharsets.UTF_8));
+        assertEquals("density", MAPPER.readTree(lines[0]).get("rec").asText());
+        assertEquals("2021-04-22T00:00:00Z", MAPPER.readTree(lines[0]).get("asOf").asText());
+        assertEquals(0.93, MAPPER.readTree(lines[0]).get("level").asDouble(), 1e-12);
+        assertEquals("density", MAPPER.readTree(lines[1]).get("rec").asText());
+    }
+
+    @Test
+    void densityRecord_NonFiniteLevel_IsJsonNull() throws Exception {
+        JsonNode n = MAPPER.readTree(
+                NdjsonObserver.densityRecord(Instant.parse("2020-03-12T00:00:00Z"), Double.NaN));
+        assertTrue(n.get("level").isNull(), n.toString());
+    }
+
+    @Test
     void constructor_RejectsNullStream() {
         assertThrows(IllegalArgumentException.class, () -> new NdjsonObserver(null));
     }

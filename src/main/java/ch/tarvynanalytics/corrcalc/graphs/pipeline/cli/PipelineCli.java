@@ -90,6 +90,7 @@ public final class PipelineCli {
         Integer limit = null;
         int heartbeatEvery = 1;
         String observe = "all";
+        boolean observeDensity = false;
         String style = "technical";
         boolean verbose = false;
         String calibration = "leading-warmup";
@@ -113,7 +114,14 @@ public final class PipelineCli {
                 case "--calm-bars" -> calmBars = parseInt(value(args, ++i, a), a);
                 case "--limit" -> limit = parseInt(value(args, ++i, a), a);
                 case "--heartbeat-every" -> heartbeatEvery = parseInt(value(args, ++i, a), a);
-                case "--observe" -> observe = value(args, ++i, a);
+                case "--observe" -> {
+                    String v = value(args, ++i, a);
+                    if ("density".equals(v)) {
+                        observeDensity = true;
+                    } else {
+                        observe = v;
+                    }
+                }
                 case "--style" -> style = value(args, ++i, a);
                 case "--universe" -> universe = value(args, ++i, a);
                 case "--from" -> from = value(args, ++i, a);
@@ -157,7 +165,7 @@ public final class PipelineCli {
                 limit, heartbeatEvery, universe == null ? null : Path.of(universe),
                 parseDate(from, "--from"), parseDate(to, "--to"),
                 calibration, calibrationArtifact == null ? null : Path.of(calibrationArtifact),
-                saveCalibration == null ? null : Path.of(saveCalibration), fireMode);
+                saveCalibration == null ? null : Path.of(saveCalibration), fireMode, observeDensity);
 
         ObservationPolicy policy = parseObserve(observe);
         // Fires go to the product sink (loud WARN banner); the full transition series goes to the
@@ -275,7 +283,9 @@ public final class PipelineCli {
                   --calm-bars <N>             window-points used to calibrate (default: ~40% of the series)
                   --limit <N>                 stop after N detection points (default: unlimited)
                   --heartbeat-every <N>       forward one observation in every N (default: 1)
-                  --observe <spec>            which transitions to log: all|fires|change>=<x>|activation>=<x> (default: all)
+                  --observe <spec>            which transitions to log: all|fires|change>=<x>|activation>=<x>|density (default: all)
+                                              density: emit a smoothed daily density level record per finalized day
+                                              (regime-backbone fire mode only; use with --style ndjson)
                   --style technical|readable|ndjson
                                               terse metrics; an annotated stream with a legend,
                                               calibration banner, σ-magnitude, severity + reasons; or a

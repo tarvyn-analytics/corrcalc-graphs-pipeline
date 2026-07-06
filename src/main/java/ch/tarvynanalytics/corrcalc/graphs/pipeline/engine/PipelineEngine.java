@@ -188,6 +188,7 @@ public final class PipelineEngine {
         private int contributorsTopK = 3;
         private CalibrationSource calibrationSource;
         private RegimeTimescaleConfig regime;
+        private boolean observeDensity;
 
         private Builder(String[] symbols, TimescaleConfig cfg) {
             if (symbols == null || symbols.length == 0) {
@@ -281,6 +282,20 @@ public final class PipelineEngine {
         }
 
         /**
+         * Enables the {@code --observe density} observation mode (CGP-30): in regime-backbone fire mode,
+         * the engine forwards each finalized daily smoothed level to
+         * {@link PipelineObserver#onDensityLevel} as it is emitted from the daily aggregator. The
+         * {@link ch.tarvynanalytics.corrcalc.graphs.pipeline.NdjsonObserver} converts these to
+         * {@code density} NDJSON records. No-op in the default adaptive-CUSUM fire mode (no regime agg).
+         *
+         * @return this builder
+         */
+        public Builder observeDensity(boolean enabled) {
+            this.observeDensity = enabled;
+            return this;
+        }
+
+        /**
          * Selects the <strong>regime-backbone</strong> fire mode (H2R-2): the continuous-tape fire is the
          * level+hysteresis Schmitt trigger on the daily-smoothed correlation density (design §5.3), and
          * the CUSUM detector is demoted to an annotation layer — it still scores and observes, but its
@@ -336,6 +351,7 @@ public final class PipelineEngine {
         private final RegimeDetector regimeDetector;
         private final double regimeHi;    // the Schmitt high mark — the pipeline owns it, for confidence
         private final double regimeLo;    // the Schmitt low mark
+        private final boolean observeDensity;  // --observe density: forward each daily level to the observer
 
         private double[][] prev;
         private double[][] detectPrev;
@@ -380,6 +396,7 @@ public final class PipelineEngine {
                 this.regimeHi = Double.NaN;
                 this.regimeLo = Double.NaN;
             }
+            this.observeDensity = b.observeDensity;
         }
 
         /** Whether this run drives the regime-backbone fire (vs the default adaptive-CUSUM fire). */
@@ -412,6 +429,9 @@ public final class PipelineEngine {
          * regime. This is the whole continuous-tape fire (design §5.3): no re-arm clock, no freeze.
          */
         private void stepRegime(RegimeSeries.DailyLevel daily) {
+            if (observeDensity) {
+                observer.onDensityLevel(daily.day(), daily.level());
+            }
             RegimeSignal rs = regimeDetector.step(daily.level());
             regimeState = rs.state();
             lastRegimeDay = daily.day();
