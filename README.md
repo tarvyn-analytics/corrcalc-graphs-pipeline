@@ -1,16 +1,35 @@
 # corrcalc-graphs-pipeline
 
-> Research program frozen 2026-07; this library is complete and maintained as-is. Entry point: [corrcalc-graphs-meta](https://github.com/tarvyn-analytics/corrcalc-graphs-meta).
+> Feature-complete and stable; maintained as-is.
 
-The **Initiative-S S4** streaming structural-change pipeline service — the integration
-that wires the two Initiative-S primitives into one product:
+A **streaming structural-change detector for market correlation structure**. It
+watches a universe of assets bar by bar, maintains the rolling correlation
+matrix incrementally, scores how much the *structure* of that matrix changes
+over time, and publishes a signal when the market fuses into one tightly
+correlated block (**FUSION**) or relaxes back out of it (**DEFUSION**) — the
+regime shifts that matter for diversification and risk, detected as they
+happen rather than in hindsight.
+
+It is the integration layer over two sibling libraries:
+
+- [**corrcalc-lib**](https://github.com/tarvyn-analytics/corrcalc-lib)
+  (`ch.tarvynanalytics.corrcalc:corrcalc-lib-core`) — the online rolling-Pearson
+  engine (`stream` package): feed returns, get N×N correlation-matrix snapshots
+  on a cadence, `O(N²)` per bar with zero allocation.
+- [**graphs-algos-lib**](https://github.com/tarvyn-analytics/graphs-algos-lib)
+  (`ch.tarvynanalytics.graphs:graphs-algos-lib`) — the temporal change detector
+  (`ChangeDetector`): feed consecutive matrices, get the weighted-Δr change
+  metric plus a two-sided CUSUM change-point signal.
+
+Both libraries stay asset-agnostic — they never import a connector, calendar,
+sink or filter. Only this pipeline knows about all of them at once:
 
 ```
                          ┌──────────────────── PipelineEngine (the hub) ───────────────────────┐
- MarketDataSource ─poll→ ReturnBuilder ─returns→  S1 online corr ─matrices→ S3 temporal change ─┤
-   (a source:            (log returns,            (corrcalc-lib:            (graphs-algos-lib:   │
-    stored bars / live)   drop session-first)      RollingCorrelations)      ChangeDetector)     │
-                                                                                                 │
+ MarketDataSource ─poll→ ReturnBuilder ─returns→ rolling corr ─matrices→ temporal change ───────┤
+   (a source:            (log returns,           (corrcalc-lib:          (graphs-algos-lib:     │
+    stored bars / live)   drop session-first)     RollingCorrelations)    ChangeDetector)       │
+                                                                                                │
    PipelineDriver pulls the source, builds returns, paces, and feeds the engine ───────────────┘
                                                           │
                             fire? ┌─────────────────────────────────────────────┐ every transition
@@ -18,52 +37,8 @@ that wires the two Initiative-S primitives into one product:
                           (the censored product fire-stream)          │        (the full series; the consumer's policy decides)
 ```
 
-Its product is a **published structural-change signal** (`StructuralSignal`), not a UI — a
-B2B *signal-as-a-product*. A dashboard (S5) becomes one consumer of this stream. Every box above is
-real: `engine.PipelineEngine` is the source-agnostic orchestrator, `PipelineDriver` connects a
-`MarketDataSource` (inbound seam) to it, and the two output seams (fires vs. observations) are
-described under *Two output seams* below.
-
-It depends on two private libraries from this org:
-
-- **S1** `ch.tarvynanalytics.corrcalc:corrcalc-lib-core` — the online rolling-Pearson engine
-  (`stream` package): feed returns, get N×N correlation-matrix snapshots on a cadence.
-- **S3** `ch.tarvynanalytics.graphs:graphs-algos-lib` — the temporal change detector
-  (`ChangeDetector`): feed consecutive matrices, get the weighted-Δr change metric + two-sided
-  CUSUM change-point signal.
-
-The asset-agnostic core (S1 + S3) never imports a connector, calendar, sink or filter. Only
-this pipeline knows about all of them at once.
-
-## What it does — the n=8 crypto regression
-
-The first milestone reproduces the spike's **n=8 crypto detection** end-to-end, as a pinned
-regression. Two detectors run over the same S1 matrix stream:
-
-1. **Density-level baseline** — `AND(level-gate, CUSUM-on-density)`, a faithful port of the
-   spike's `replay_alert`. It reproduces `crypto_lead_table.csv` bit-for-bit (intraday detects
-   covid / may2021 / luna / ftx; daily detects may2021 only, ~47 h later).
-2. **S3 change detector** — `AND(level-gate, CUSUM-on-weighted-change)`, the *better* primitive.
-   It recovers the four saturated-regime both-misses (china / nov2021 / svb / yen) that the
-   absolute-level gate structurally cannot see (calm density already ≈ 1.0).
-
-### Two regression layers
-
-- **CI-deterministic (committed fixtures).** The 2.4 GB of raw 1-minute crypto bars are *not*
-  committed. Instead a compact fixture per event/timescale — the calibration `(μ, σ, level)`
-  plus the **event-window** `(timestamp, density, weighted_change)` series — is committed under
-  `src/test/resources/`. Because the CUSUM resets to zero at the event-window start, those two
-  pieces fully determine every `crypto_lead_table.csv` column, so CI reproduces the table without
-  the raw data. The fixtures are exported by
-  `corrcalc-graphs-research-scratches/spike/export_pipeline_fixture.py`.
-- **Opt-in full reproduction (local).** Point the driver at a local copy of the raw bars to run
-  the *whole* pipeline (panel building → S1 → S3 → full lead table + false-alarm table):
-
-  ```bash
-  ./mvnw test -Dtest=CryptoFullBacktestDriverTest -Dcrypto.data.dir=/path/to/spike/crypto-data
-  ```
-
-  This test is skipped when `crypto.data.dir` is unset (the CI default).
+The product is a **published structural-change signal** (`StructuralSignal`),
+not a UI — a dashboard would be just one more consumer of the stream.
 
 ## Build
 
@@ -71,23 +46,21 @@ regression. Two detectors run over the same S1 matrix stream:
 ./mvnw clean verify    # tests + JaCoCo 80/70 gate
 ```
 
-**Requires JDK 25.** The two upstream libraries are **private GitHub-Packages** artifacts. For
-local work, install each to `~/.m2` once from a sibling checkout (no token needed):
+**Requires JDK 25.** The two upstream libraries resolve from GitHub Packages
+(which needs a GitHub token with `read:packages`); for tokenless local work,
+install each to `~/.m2` once from a sibling checkout:
 
 ```bash
-( cd ../../corrcalc/corrcalc-lib && ./mvnw -DskipTests install )
-( cd ../../graphs/graphs-algos-lib && ./mvnw -DskipTests install )
+( cd ../corrcalc-lib && ./mvnw -DskipTests install )
+( cd ../graphs-algos-lib && ./mvnw -DskipTests install )
 ```
 
-CI resolves them from GitHub Packages via a `PACKAGES_TOKEN` secret (read:packages on both
-libraries; write:packages on this repo for the publish job) — see `.github/workflows/`.
+## The CLI — live replay
 
-## Run — live replay CLI
-
-The pipeline ships a CLI that **replays stored bars through the real S1→S3 pipeline at a configurable
-pace** and logs the signal as it evolves — the quickest way to *see* what the engine produces. Build
-the runnable jar with the `cli` profile (a shaded uber-jar; the normal/published thin jar is
-unaffected):
+The pipeline ships a CLI that **replays stored bars through the real pipeline
+at a configurable pace** and logs the signal as it evolves — the quickest way
+to *see* what the engine produces. Build the runnable jar with the `cli`
+profile (a shaded uber-jar; the published thin jar is unaffected):
 
 ```bash
 ./mvnw -Pcli -DskipTests package
@@ -95,11 +68,11 @@ java -jar target/corrcalc-graphs-pipeline-*-cli.jar replay <data-dir> --event <n
   --timescale intraday --speed 500
 ```
 
-`<data-dir>` holds the spike's per-symbol `<SYMBOL>_<freq>_<event>.csv` OHLCV bars; the universe
-defaults to `<data-dir>/<event>_universe.csv`. Each window-end transition logs a **calm heartbeat**
-(density, weighted-change, both CUSUM arms); every genuine **FUSION/DEFUSION** fire is published to
-the `LoggingSink` and printed as a highlighted `=== FUSION ===` banner (WARN, colorized) so it stands
-out from the calm stream:
+`<data-dir>` holds per-symbol `<SYMBOL>_<freq>_<event>.csv` OHLCV bars; the
+universe defaults to `<data-dir>/<event>_universe.csv`. Each window-end
+transition logs a **calm heartbeat** (density, weighted-change, both CUSUM
+arms); every genuine **FUSION/DEFUSION** fire is published to the sink and
+printed as a highlighted banner so it stands out from the calm stream:
 
 ```
 INFO  density=0.000  wD=0.068  S+=0.00  S-=0.00
@@ -125,37 +98,115 @@ INFO  density=1.000  wD=0.312  S+=9.46  S-=0.00
 | `--calibration leading-warmup\|calm-block\|adaptive` | `leading-warmup` | how the detector is calibrated: leading prefix; primed from a persisted walk-forward artifact; or the adaptive online walk-forward estimator |
 | `--calibration-artifact <path>` | — | the artifact JSON (required for `calm-block`; optional operator-vouched prior for `adaptive`) |
 | `--save-calibration <path>` | — | persist this run's resulting calibration artifact |
-| `--fire-mode cusum\|regime` | `cusum` | which detector drives the fire-stream: the adaptive-CUSUM detector (in-span n=8 product) or the regime backbone on daily-smoothed density (continuous-tape fire) |
+| `--fire-mode cusum\|regime` | `cusum` | which detector drives the fire-stream: the adaptive-CUSUM detector or the regime backbone on daily-smoothed density (continuous-tape fire) |
 | `--universe <path>` | `<data-dir>/<event>_universe.csv` | explicit symbol-list CSV |
 | `--from` / `--to <YYYY-MM-DD>` | — | optional UTC date filter on bars |
 | `-v, --verbose` | off | DEBUG logging |
 
-Default calibration is a leading warm-up of the replayed series (a pragmatic choice for a first
-visual impression), not the rigorous walk-forward calm block the `backtest` regression uses —
-pick `--calibration calm-block|adaptive` for the honest modes. Exit codes: `0` ran,
-`2` usage/bad-argument, `1` input-IO. `--help` documents every flag.
+Default calibration is a leading warm-up of the replayed series (a pragmatic
+choice for a first visual impression), not the rigorous walk-forward calm block
+the regression tests use — pick `--calibration calm-block|adaptive` for the
+honest modes. Exit codes: `0` ran, `2` usage/bad-argument, `1` input-IO.
+`--help` documents every flag.
 
-### Two output seams — fires vs. observations
+## The math — from bars to a fire
 
-The pipeline emits on **two distinct seams**, and *what crosses each is the consumer's choice*:
+1. **Log returns, one timescale per stream.** Prices become per-bar log
+   returns (`log(close / prevClose)`); no return ever crosses a session
+   boundary (UTC-day reset for crypto). Macro (daily) and micro (intraday) run
+   as separate engines end to end — the only sanctioned cross-timescale
+   combination is a matrix blend, never interleaved bars.
+2. **Rolling correlation matrix.** corrcalc-lib's streaming engine maintains
+   the Pearson matrix over a sliding window `W` (rank-one slide per bar,
+   allocation-free) and emits snapshots on a cadence.
+3. **Two structure summaries per snapshot.**
+   *Edge density* — the fraction of pairs with `|r|` above a threshold τ: a
+   direct reading of how much of the market is glued together.
+   *Weighted-Δr* — graphs-algos-lib's change metric between consecutive
+   matrices, weighting each pair's correlation change so large coordinated
+   shifts dominate idiosyncratic noise.
+4. **Detection, two fire modes.**
+   `cusum` — an `AND(level-gate, two-sided CUSUM)` detector on the change
+   metric: the CUSUM arms (`S+`, `S−` with slack `k`, threshold `h`)
+   accumulate standardized drift, the level gate suppresses fires while
+   absolute density is unremarkable.
+   `regime` — a state machine on daily-smoothed density with hysteresis
+   (enter above a high mark, exit below a low mark, confirmed for a minimum
+   number of days): the continuous-tape mode that fires on regime entry/exit
+   rather than transient spikes.
+5. **Calibration.** Detector baselines `(μ, σ, level)` come from a calm
+   window: a leading warm-up (CLI default), a persisted walk-forward
+   **calibration artifact** (JSON, reusable across runs), or an online
+   adaptive estimator that re-baselines as the tape evolves. All thresholds
+   are configuration, not code — a new market is wired, not coded.
 
-- **The product fire-stream** (`StructuralSignal` → `SignalFilter` → `SignalSink`) carries only
-  genuine, filter-passed fires — the censored B2B signal. The CLI prints these as the loud WARN
-  `=== FUSION ===` banner via `LoggingSink`. Unchanged contract: no fire is ever silently dropped.
-- **The observation seam** (`PipelineObservation` → `ObservationPolicy` → `PipelineObserver`) carries
-  *every* scored transition — fired or not. The engine never decides verbosity; the consumer installs
-  an `ObservationPolicy` (`all` / `firesOnly` / `minWeightedChange(τ)` / `minActivation(frac)`, freely
-  composed) that decides which observations reach their observer. `--observe` selects this policy and
-  `--heartbeat-every` thins it; the CLI's `LoggingObserver` prints the quiet INFO heartbeat.
+## Validation — a pinned historical-event regression
 
-So "push every tick, only fires, or just the big moves" is a one-line policy on whoever composes the
-pipeline — not a property baked into the engine.
+The detector suite is validated against **eight named crypto market events**
+(2020–2023: the COVID crash, the May-2021 and China-ban selloffs, the
+November-2021 top, LUNA, FTX, SVB and the yen-carry shock) over a 17-symbol
+universe of 1-minute bars, as a bit-for-bit pinned regression:
 
-### Consuming a live market-data stream
+- **CI-deterministic (committed fixtures).** The multi-GB raw bar dataset is
+  *not* committed. Instead a compact fixture per event/timescale — the
+  calibration `(μ, σ, level)` plus the event-window
+  `(timestamp, density, weighted_change)` series — lives under
+  `src/test/resources/` and fully determines every detection lead-time column
+  (the CUSUM resets at the event-window start). CI reproduces the whole lead
+  table on every build, no raw data needed.
+- **Opt-in full reproduction (local).** Point the driver at a local copy of
+  the raw bars to run the *whole* pipeline (panel building → correlation →
+  change detection → full lead + false-alarm tables):
 
-The pipeline pulls its input through one inbound SPI, `source.MarketDataSource`, so a provider plugs in
-by implementing a single blocking `poll()` that yields **aligned cross-sections** (`MarketSnapshot` =
-one timestamp + a close per universe symbol). `PipelineDriver` does the rest — turning prices into log
+  ```bash
+  ./mvnw test -Dtest=CryptoFullBacktestDriverTest -Dcrypto.data.dir=/path/to/crypto-data
+  ```
+
+  This test is skipped when `crypto.data.dir` is unset (the CI default).
+
+Headline result the regression pins: on intraday bars the detector catches the
+COVID, May-2021, LUNA and FTX events with a lead of hours-to-days over the
+daily timescale (which sees only May-2021, ~47 h later), and the change-metric
+detector additionally recovers saturated-regime events (China ban, Nov-2021,
+SVB, yen) that an absolute-density gate structurally cannot see because calm
+density is already ≈ 1.0.
+
+## Performance
+
+The replay path streams bars from disk instead of materializing the tape, so
+**heap stays constant regardless of input size** — multi-year, multi-GB
+1-minute datasets replay in a steady few hundred MB. The per-bar cost is
+dominated by the upstream rolling-correlation slide, which is allocation-free
+`O(N²)` per bar (measured at ~2.9M bars/s for N=16, ~140K bars/s for N=100 on
+commodity hardware — see the
+[corrcalc-lib streaming benchmarks](https://github.com/tarvyn-analytics/corrcalc-lib#streaming-engine)).
+The graph-side change metric adds one `O(N²)` pass per emitted snapshot.
+
+## Two output seams — fires vs. observations
+
+The pipeline emits on **two distinct seams**, and *what crosses each is the
+consumer's choice*:
+
+- **The product fire-stream** (`StructuralSignal` → `SignalFilter` →
+  `SignalSink`) carries only genuine, filter-passed fires — the censored
+  signal. No fire is ever silently dropped.
+- **The observation seam** (`PipelineObservation` → `ObservationPolicy` →
+  `PipelineObserver`) carries *every* scored transition — fired or not. The
+  engine never decides verbosity; the consumer installs an
+  `ObservationPolicy` (`all` / `firesOnly` / `minWeightedChange(τ)` /
+  `minActivation(frac)`, freely composed) that decides which observations
+  reach their observer. `--observe` selects this policy and
+  `--heartbeat-every` thins it.
+
+So "push every tick, only fires, or just the big moves" is a one-line policy
+on whoever composes the pipeline — not a property baked into the engine.
+
+## Consuming a live market-data stream
+
+The pipeline pulls its input through one inbound SPI, `source.MarketDataSource`:
+a provider plugs in by implementing a single blocking `poll()` that yields
+**aligned cross-sections** (`MarketSnapshot` = one timestamp + a close per
+universe symbol). `PipelineDriver` does the rest — turning prices into log
 returns (`ReturnBuilder`), feeding the engine, and pacing:
 
 ```java
@@ -171,10 +222,11 @@ PipelineEngine   engine  = PipelineEngine.builder(universe, TimescaleConfig.cryp
 PipelineDriver.run(feed, builder, engine, Pace.none());           // live: no artificial pacing
 ```
 
-A replay is the same composition with an `IterableMarketDataSource` over stored bars and a `ReplayClock`
-as the `Pace` (exactly what `PacedReplay` wires for the CLI). **Bar alignment** — waiting for the slowest
-symbol of a bar, gap handling — is the connector's job behind `poll()`; real websocket/REST connectors
-are the S2 deliverable. The seam, the in-memory source, the `ReturnBuilder` and the driver ship here.
+A replay is the same composition with an `IterableMarketDataSource` over stored
+bars and a `ReplayClock` as the `Pace` (exactly what the CLI wires). **Bar
+alignment** — waiting for the slowest symbol of a bar, gap handling — is the
+connector's job behind `poll()`; the seam, the in-memory source, the
+`ReturnBuilder` and the driver all ship here.
 
 ## Layout
 
@@ -182,18 +234,20 @@ are the S2 deliverable. The seam, the in-memory source, the `ReturnBuilder` and 
 ch.tarvynanalytics.corrcalc.graphs.pipeline
 ├── StructuralSignal / SignalKind        # the published fire event (the product)
 ├── SignalFilter / SignalSink            # the fire-stream SPIs (filter + multi-sink delivery seam)
-├── LoggingSink / FanOutSink / CollectingSink  # concrete sinks (LoggingSink highlights fires)
 ├── PipelineObservation / PipelineObserver / ObservationPolicy  # the observation seam (every transition)
-├── LoggingObserver / ThinningObserver   # the heartbeat observer + a thinning decorator
 ├── source/                              # MarketDataSource SPI + MarketSnapshot + IterableMarketDataSource (inbound seam)
 ├── engine/                              # PipelineEngine (hub) + PipelineDriver + Pace
-├── data/                                # bars → aligned snapshots (PriceSnapshots) → log returns (ReturnBuilder / ReturnPanels)
-├── detect/                              # the density-level baseline alert + S3 wiring
-├── backtest/                            # per-event scoring + the n=8 lead-table regression driver
+├── data/                                # bars → aligned snapshots → log returns (ReturnBuilder)
+├── detect/                              # the detectors: density-level baseline, CUSUM wiring, regime backbone
+├── backtest/                            # per-event scoring + the event lead-table regression driver
 ├── replay/                              # the wall-clock-paced replay driver over the source seam (the CLI's core)
 └── cli/                                 # PipelineCli — the `java -jar` entry point (`replay` verb)
 ```
 
-The Java package is `ch.tarvynanalytics.corrcalc.graphs.pipeline` (the graph analysis extends
-corrcalc's correlation output); the Maven coordinates are
+The Java package is `ch.tarvynanalytics.corrcalc.graphs.pipeline` (the graph
+analysis extends corrcalc's correlation output); the Maven coordinates are
 `ch.tarvynanalytics.corrcalc.graphs:corrcalc-graphs-pipeline`.
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
