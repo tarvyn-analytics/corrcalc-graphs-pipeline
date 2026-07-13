@@ -1,7 +1,7 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline.detect;
 
 /**
- * The continuous-stream <strong>re-arm cadence</strong> tuning (H2 numerics spec Q4) — when the
+ * The continuous-stream <strong>re-arm cadence</strong> tuning — when the
  * engine advances the detector's window id (the GAL-28 {@code reset_ids} re-arm: clears the
  * one-fire debounce and resets the firing arm) so a multi-year stream fires once per regime event
  * instead of once ever. All constants are configuration, never literals in the cadence body

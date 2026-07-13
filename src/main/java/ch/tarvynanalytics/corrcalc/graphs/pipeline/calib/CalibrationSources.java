@@ -42,7 +42,7 @@ public final class CalibrationSources {
     }
 
     /**
-     * The adaptive source (H2 numerics spec Q2/Q3): the online walk-forward automation — a
+     * The adaptive source: the online walk-forward automation — a
      * self-gating quietness rule admits calm bars to a robust median/MAD trailing estimator, a
      * Page-Hinkley drift meta-monitor opens new calibration epochs through the detector's
      * {@code recalibrate}, and the lifecycle is surfaced as bounded {@code CalibrationEvent}s.

@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The H2R-2 regime-backbone fire mode through the real engine. Each "day" of the synthetic tape is one
+ * The regime-backbone fire mode through the real engine. Each "day" of the synthetic tape is one
  * UTC date of either fused bars (all symbols identical → correlation +1 → density 1.0) or calm bars
  * (a rotating one-hot → every pairwise |r| = 1/3 &lt; τ=0.5 → density 0.0), so the daily-aggregated
  * density is a clean 1.0/0.0 and the Schmitt trigger's onsets are hand-predictable. A UTC-day window

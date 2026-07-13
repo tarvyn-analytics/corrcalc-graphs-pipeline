@@ -7,14 +7,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Density prep for the H2R-2 regime-state backbone (design §5.1): reduces the per-window correlation
+ * Density prep for the regime-state backbone: reduces the per-window correlation
  * {@code density} series to the <strong>daily-aggregated, trailing-median-smoothed</strong> level
  * series the GAL {@code RegimeStateDetector} reads. This is the market/cadence policy the pipeline
  * owns; the detector stays cadence-agnostic (it only counts samples).
  *
- * <p>The transform mirrors the H2R-1 spike ({@code h2r1_regime_model.py}) bar-for-bar, with the
+ * <p>The transform mirrors the spike oracle {@code h2r1_regime_model.py} bar-for-bar, with the
  * centered-median replaced by a <strong>causal trailing median</strong>
- * (H2R-5, {@code run3_signal.trailing_median}):</p>
+ * ({@code run3_signal.trailing_median}):</p>
  * <ol>
  *   <li><strong>daily aggregation</strong> — the density values are grouped by UTC calendar day and
  *       each day becomes its mean (finite densities only; a NaN density is a data gap and does not

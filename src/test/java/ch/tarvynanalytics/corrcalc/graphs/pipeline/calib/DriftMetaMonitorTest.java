@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * Pins the drift meta-monitor to the numerics spec's Q3 hand trace: the two-sided Page-Hinkley
+ * Pins the drift meta-monitor to an independent hand trace: the two-sided Page-Hinkley
  * arms with tolerance {@code δ = driftDelta·σ_epoch} and threshold {@code λ = driftLambda·σ_epoch},
  * plus the σ-ratio guard. Every expectation below is a hand-computed literal from the spec's
  * worked example (μ_epoch = 2.0, σ_epoch = 1.0, δ = 0.25) — never the code's own output.
@@ -19,7 +19,7 @@ class DriftMetaMonitorTest {
 
     @Test
     void observeAdmitted_SustainedUpShift_OpensEpochOnTheHandTracedBar() {
-        // The spec Q3 hand trace with λ = 2σ: six calm bars (PH ≡ 0), then a genuine +1.0 shift;
+        // The hand trace with λ = 2σ: six calm bars (PH ≡ 0), then a genuine +1.0 shift;
         // PH climbs 0.75 → 1.55 → 2.25 and crosses λ on the THIRD post-shift bar (index 8).
         DriftMetaMonitor monitor = monitor(0.25, 2.0);
         monitor.open(2.0, 1.0, 1.0);

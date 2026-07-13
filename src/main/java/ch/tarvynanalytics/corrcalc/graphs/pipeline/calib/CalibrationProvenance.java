@@ -5,7 +5,7 @@ import java.time.Instant;
 /**
  * The lightweight calibration provenance surfaced on the run context: which mode calibrated the
  * detector, which epoch is live, and what source window produced it. The full persisted form is
- * {@link CalibrationArtifact}; this is the few fields every observer may echo (H2 design §3.2).
+ * {@link CalibrationArtifact}; this is the few fields every observer may echo.
  *
  * @param calibrationMode how the baseline was selected: {@code "leading-warmup"},
  *                        {@code "calm-block"} or {@code "adaptive"}

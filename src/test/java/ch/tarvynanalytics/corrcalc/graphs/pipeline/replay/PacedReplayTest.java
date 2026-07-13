@@ -120,7 +120,7 @@ class PacedReplayTest {
 
     @Test
     void stream_RegimeFireModeWithSaveCalibration_SkipsArtifactCleanlyWithoutThrowing(@TempDir Path work) {
-        // CGP-28: under --fire-mode regime the persisted artifact would belong to the demoted CUSUM
+        // Under --fire-mode regime the persisted artifact would belong to the demoted CUSUM
         // annotation, whose final epoch leaves its source window unstamped — persisting it threw
         // ("source window must be stamped [null, null]") after the run completed. The fix skips the
         // save cleanly under regime mode: the run completes without throwing and writes no artifact.

@@ -1,7 +1,7 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 
 /**
- * The output delivery seam (build-design §5.2, feature #2): a sink the pipeline publishes a
+ * The output delivery seam: a sink the pipeline publishes a
  * {@link StructuralSignal} to. Multi-sink from day one — concrete adapters (Kafka, REST callback,
  * email, Slack, Teams) are later deliverables; {@link FanOutSink} composes several, and
  * {@link CollectingSink} is the in-memory sink the tests and the regression driver consume. This is

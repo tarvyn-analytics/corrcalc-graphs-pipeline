@@ -13,7 +13,7 @@ import java.util.Map;
 import java.util.stream.Stream;
 
 /**
- * The n=8 end-to-end regression (build-design §5.4): the pipeline reproduces the spike's
+ * The n=8 end-to-end regression: the pipeline reproduces the spike's
  * {@code crypto_lead_table.csv} bit-for-bit using the density-level baseline detector. Driven by a
  * compact committed fixture — per event/timescale the calm calibration {@code (μ, σ, L)} plus the
  * event-window {@code (epoch_second, n_edges)} series — exported by

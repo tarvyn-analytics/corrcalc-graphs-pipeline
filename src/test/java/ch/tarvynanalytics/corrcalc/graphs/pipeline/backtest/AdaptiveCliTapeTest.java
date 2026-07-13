@@ -26,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Opt-in H2 PR-5 acceptance: adaptive cold-start through the replay CLI, judged with
+ * Opt-in acceptance tape test: adaptive cold-start through the replay CLI, judged with
  * <strong>per-question semantics</strong> — each FUSION opens a regime question that exactly one
  * of three things closes: its own DEFUSION all-clear (answered), the next FUSION after a re-arm
  * (moved on), or the calendar-backstop expiry (expired unresolved). The replay INCLUDES the calm
@@ -45,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   <li><strong>Specificity:</strong> may2021's event question is never answered by an all-clear
  *       (the headline suppression result).</li>
  *   <li><strong>Sensitivity of the mechanics:</strong> the adaptive-calibrated gauge resolves
- *       honest fusion→all-clear cycles timely (§7's ~48 h–2.5 d lag; ≤ 10 d bar) across the suite.</li>
+ *       honest fusion→all-clear cycles timely (the walk-forward reference's ~48 h–2.5 d lag; ≤ 10 d bar) across the suite.</li>
  *   <li><strong>The latch invariant:</strong> no DEFUSION without a pending FUSION (FA safety).</li>
  * </ol>
  *
@@ -73,7 +73,7 @@ class AdaptiveCliTapeTest {
     private static final Duration EVENT_LEAD = Duration.ofDays(7);
     private static final Duration EVENT_TAIL = Duration.ofDays(3);
 
-    /** Honest all-clears land ~48 h–2.5 d after their fusion (gauge spec §7); ≤ 10 d is the bar. */
+    /** Honest all-clears land ~48 h–2.5 d after their fusion (walk-forward reference); ≤ 10 d is the bar. */
     private static final Duration TIMELY = Duration.ofDays(10);
 
     @TempDir

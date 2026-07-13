@@ -4,7 +4,7 @@ import java.time.Duration;
 import java.time.Instant;
 
 /**
- * One regime-state edge on the continuous-tape backbone (H2R-2), emitted by the pipeline engine
+ * One regime-state edge on the continuous-tape backbone, emitted by the pipeline engine
  * when the smoothed-density Schmitt trigger crosses a mark. It is the regime-layer
  * counterpart of {@link CalibrationEvent}: a bounded {@link RegimeEventKind} plus the raw facts a
  * consumer needs (the daily-smoothed density at the edge, and the onset the edge pairs with, so the
@@ -12,8 +12,8 @@ import java.time.Instant;
  * order and delivered to {@link PipelineObserver#onRegimeEvent}; never gated by an
  * {@link ObservationPolicy} (a regime edge is always reported, like a calibration event).
  *
- * <p>The heavier "confidence/label" reporting (design §3) is layered on this by the observability
- * stage (PR-4), not baked into the detector; this record carries only detector-level facts.</p>
+ * <p>The heavier "confidence/label" reporting is layered on this by the observability
+ * stage, not baked into the detector; this record carries only detector-level facts.</p>
  *
  * @param asOf            the UTC-midnight timestamp of the day the edge was confirmed on — under
  *                        the causal (trailing) smooth, a {@link RegimeEventKind#FUSION_ONSET} or
@@ -24,8 +24,8 @@ import java.time.Instant;
  * @param smoothedDensity the daily-smoothed density level at the edge (the value the trigger read)
  * @param confidence      how decisive the crossing was, in {@code [0, 1]} — the margin past the mark
  *                        normalised by the room beyond it (0 at the mark, 1 at a saturated/empty graph)
- *                        — computed by the pipeline (which owns the marks), never the GAL trigger
- *                        (design §3, §8.3); {@link Double#NaN} for {@link RegimeEventKind#OPEN_AT_EOF}
+ *                        — computed by the pipeline (which owns the marks), never the GAL trigger;
+ *                        {@link Double#NaN} for {@link RegimeEventKind#OPEN_AT_EOF}
  *                        (no crossing occurred)
  * @param regimeOnset     the fusion-onset day of the regime this edge belongs to — equal to
  *                        {@code asOf} for a {@link RegimeEventKind#FUSION_ONSET}, and the paired onset

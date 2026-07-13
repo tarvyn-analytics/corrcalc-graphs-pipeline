@@ -159,7 +159,7 @@ class PipelineEngineTest {
     void calibrationSource_ReadyImmediately_CalibratesOnTheFirstSnapshotAndScoresTheRest() {
         // A walk-forward-style source (ready before the stream, e.g. from a calm-block artifact)
         // must prime the detector on the FIRST window-fill snapshot, so every later snapshot is a
-        // scored transition — the seam PR-3's calm-block mode plugs into.
+        // scored transition — the seam the calm-block mode plugs into.
         ch.tarvynanalytics.graphs.algos.Calibration external =
                 new ch.tarvynanalytics.graphs.algos.Calibration(0.01, 0.02, 0.9, 0.3, 0.05);
         ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSource ready =
@@ -229,7 +229,7 @@ class PipelineEngineTest {
 
     @Test
     void detect_FusedAwaitingRearmSpan_FreezesTheCalibrationSource() {
-        // The may2021 suppression guard (numerics spec Q2 amendment): between a FUSION and its
+        // The may2021-class suppression guard: between a FUSION and its
         // re-arm resolution, every calm statistic handed to the calibration source must carry the
         // freeze flag — the baseline may not move while an all-clear is pending against it.
         List<Instant> asOfs = new ArrayList<>();
@@ -294,7 +294,7 @@ class PipelineEngineTest {
 
     @Test
     void detect_BackstopExpiry_TellsTheCalibrationSourceToRebaseline() {
-        // The Q4.1 expiry amendment wiring: when the calendar backstop expires an unresolved
+        // The backstop-expiry wiring: when the calendar backstop expires an unresolved
         // question (a fusion whose aftermath never recovers), the engine must hand the expiry to
         // the calibration source — the adaptive one re-baselines; a frozen one ignores it.
         List<Instant> expiries = new ArrayList<>();
@@ -405,7 +405,7 @@ class PipelineEngineTest {
 
     @Test
     void detect_SourceOpensAnEpoch_RecalibratesTheDetectorAndForwardsTheEvent() {
-        // The online half of the calibration seam (H2 PR-5): a source that opens an epoch after the
+        // The online half of the calibration seam: a source that opens an epoch after the
         // 5th scored transition must (a) have the fresh calibration installed on the RUNNING
         // detector — later observations echo the new baseline — and (b) have its bounded event
         // forwarded to the observer exactly once.

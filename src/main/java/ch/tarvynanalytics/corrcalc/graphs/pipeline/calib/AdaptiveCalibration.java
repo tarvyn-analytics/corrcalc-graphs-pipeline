@@ -10,7 +10,7 @@ import java.util.ArrayDeque;
 import java.util.Optional;
 
 /**
- * The adaptive {@link CalibrationSource} (H2 numerics spec Q2/Q3): the online automation of the
+ * The adaptive {@link CalibrationSource}: the online automation of the
  * validated walk-forward calm block. Composes five proven rules — the <strong>learn gate</strong>
  * ({@code |z| ≤ zLearn} against the current yardstick, plus density at-or-below the live epoch's
  * level gate: the learn-free/alarm-free dead zone sits between the gate and the alarm), the
@@ -345,7 +345,7 @@ final class AdaptiveCalibration implements CalibrationSource {
     }
 
     /**
-     * The Q3 relative σ-floor (spec H2R-1 Q3): floor the trailing σ̂ at {@code sigmaFloorFrac} of a
+     * The relative σ-floor: floor the trailing σ̂ at {@code sigmaFloorFrac} of a
      * long-window reference σ, so a brief calm patch cannot collapse the yardstick into the
      * calm-regime fire metronome (RUN-1 failure mode 2). A no-op when the floor is disabled
      * ({@code cRef == null}) or the reference window has fewer than two admitted bars.

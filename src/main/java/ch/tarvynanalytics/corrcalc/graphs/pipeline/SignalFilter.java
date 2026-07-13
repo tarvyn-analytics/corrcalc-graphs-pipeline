@@ -1,7 +1,7 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 
 /**
- * The AI signal-validity filter hook (build-design §5.3, feature #1a): a pluggable stage that sits
+ * The AI signal-validity filter hook: a pluggable stage that sits
  * <em>between</em> the S3 detector and the {@link SignalSink} fan-out and assesses whether a fired
  * signal is genuine. The default is a no-op that accepts everything; an AI-backed implementation is
  * a later deliverable that directly targets the n=8 false-alarm weakness. The verdict populates the

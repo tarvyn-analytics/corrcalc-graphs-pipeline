@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** The calm-block source: ready before the stream, primed from the walk-forward artifact (PR-3). */
+/** The calm-block source: ready before the stream, primed from the walk-forward artifact. */
 class CalmBlockCalibrationTest {
 
     private static final Instant FROM = Instant.parse("2021-03-01T00:00:00Z");

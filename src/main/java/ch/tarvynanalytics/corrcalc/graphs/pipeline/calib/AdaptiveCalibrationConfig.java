@@ -1,7 +1,7 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline.calib;
 
 /**
- * The adaptive-calibration tuning (H2 numerics spec Q2/Q3) — the quietness-rule + drift constants,
+ * The adaptive-calibration tuning — the quietness-rule + drift constants,
  * config not code (pipeline invariant 4), per asset × timescale. The drift constants are stored as
  * <strong>multiples of the epoch σ</strong> so one default transfers across assets (the meta-monitor
  * is scale-free).
@@ -11,16 +11,16 @@ package ch.tarvynanalytics.corrcalc.graphs.pipeline.calib;
  * @param learnThreshold         {@code zLearn} — the admit-to-baseline per-bar {@code |z|} ceiling,
  *                               strictly below the alarm accumulation (the dead zone, spec 2.1)
  * @param coolDownBars           admission freeze after an alert clears (the refractory tail, spec 2.3)
- * @param driftDelta             Page-Hinkley tolerance {@code δ} in σ-epoch multiples (spec Q3)
- * @param driftLambda            Page-Hinkley threshold {@code λ} in σ-epoch multiples (spec Q3)
- * @param driftSigmaRatioLo      σ-guard lower band edge as a ratio of σ-epoch (spec Q3)
- * @param driftSigmaRatioHi      σ-guard upper band edge as a ratio of σ-epoch (spec Q3)
+ * @param driftDelta             Page-Hinkley tolerance {@code δ} in σ-epoch multiples
+ * @param driftLambda            Page-Hinkley threshold {@code λ} in σ-epoch multiples
+ * @param driftSigmaRatioLo      σ-guard lower band edge as a ratio of σ-epoch
+ * @param driftSigmaRatioHi      σ-guard upper band edge as a ratio of σ-epoch
  * @param regimeShiftTimeoutBars force an epoch if no bar is admitted for this long (starvation
  *                               fallback, spec 2.5)
  * @param trailingWindowBars     {@code M} — the robust median/MAD estimator's admitted-bar window
  *                               (spec 2.2)
  * @param sigmaFloorFrac         {@code Q3 σ-floor}: floor the trailing σ̂ at this fraction of a
- *                               long-window reference σ (spec H2R-1 Q3) so a brief calm patch cannot
+ *                               long-window reference σ so a brief calm patch cannot
  *                               collapse the CUSUM yardstick into the calm-regime fire metronome
  *                               (RUN-1 failure mode 2). {@code 0} disables the relative floor (the
  *                               exact pre-Q3 behaviour); the settled crypto value is {@code 0.5}
@@ -99,10 +99,10 @@ public record AdaptiveCalibrationConfig(
 
     /**
      * The crypto intraday defaults (1-min cadence): 24 h warm-up, 48 h freeze/estimator windows
-     * matched to the recovery-gauge scale, 14-day starvation timeout (numerics spec §0). The Q3
+     * matched to the recovery-gauge scale, 14-day starvation timeout. The relative
      * σ-floor is enabled ({@code frac=0.5} over a {@code 43200}-bar ≈ 30-day reference window) — the
-     * one universe-independent H2R-1 amendment, hardening the demoted CUSUM annotation against the
-     * calm-regime fire metronome (design §5.2, §7).
+     * hardening that keeps the demoted CUSUM annotation from the
+     * calm-regime fire metronome.
      *
      * @return the intraday tuning
      */
@@ -112,7 +112,7 @@ public record AdaptiveCalibrationConfig(
 
     /**
      * The crypto daily defaults: the validated 45-bar calm-block length as both warm-up and
-     * estimator window, 90-day starvation timeout (numerics spec §0). The Q3 σ-floor is enabled
+     * estimator window, 90-day starvation timeout. The relative σ-floor is enabled
      * ({@code frac=0.5} over a 30-bar ≈ 30-day reference window).
      *
      * @return the daily tuning

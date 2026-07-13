@@ -305,7 +305,7 @@ public final class PipelineCli {
                                               or an adaptive run's operator-vouched prior (optional)
                   --save-calibration <path>   persist this run's resulting calibration artifact
                   --fire-mode cusum|regime    which detector drives the fire-stream: the adaptive-CUSUM
-                                              detector (default, the in-span n=8 product), or the H2R-2
+                                              detector (default, the in-span n=8 product), or the
                                               regime backbone on the daily-smoothed density (the
                                               continuous-tape fire; CUSUM demoted to annotation)
                   -v, --verbose               DEBUG logging

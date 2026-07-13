@@ -3,13 +3,13 @@ package ch.tarvynanalytics.corrcalc.graphs.pipeline.calib;
 import java.util.Arrays;
 
 /**
- * The robust location/scale selections the adaptive estimator uses (numerics spec Q2.2, Q5:
+ * The robust location/scale selections the adaptive estimator uses (kept
  * pipeline-side — the calm-selection policy is asset-specific, so this never moves into the lib).
  * All are order statistics (sort + pick): exact in {@code double}, no accumulation.
  */
 final class RobustStats {
 
-    /** MAD → stdev consistency factor under normality: {@code 1 / Φ⁻¹(0.75)} (spec 2.2). */
+    /** MAD → stdev consistency factor under normality: {@code 1 / Φ⁻¹(0.75)}. */
     static final double MAD_TO_SIGMA = 1.4826;
 
     private RobustStats() {

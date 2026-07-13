@@ -11,3 +11,6 @@ crypto-data/
 # Local-only scratch: intermediate progress/knowledge docs, captured run output, the
 # ready-to-run replay-data symlink farm. Never committed (see notes/README.md).
 notes/
+
+# Machine-local Claude Code state (nothing tracked here)
+.claude/

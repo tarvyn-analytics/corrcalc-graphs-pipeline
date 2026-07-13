@@ -9,7 +9,7 @@ import java.util.Optional;
 /**
  * How the engine obtains the detector's calm-window {@link Calibration} — the strategy seam that
  * makes "when and from what the detector is calibrated" a run configuration instead of a hardcoded
- * engine phase (H2 design §2.1). The engine feeds every pre-detection window-point's calm statistics
+ * engine phase. The engine feeds every pre-detection window-point's calm statistics
  * through {@link #observe} and consults {@link #isReady()}; once ready, it builds the detector from
  * {@link #calibration()} and switches to feeding {@link #observeDetection} — the frozen sources
  * ignore that, the adaptive source keeps learning through it and surfaces new epochs via
@@ -17,7 +17,7 @@ import java.util.Optional;
  *
  * <p>The three product modes are implementations of this seam: the leading-warmup prefix (replay's
  * pragmatic "quick look" — {@link CalibrationSources#leadingWarmup}), a caller-supplied walk-forward
- * calm-block artifact, and the adaptive online estimator (H2 design §3.2). The engine path is shared
+ * calm-block artifact, and the adaptive online estimator. The engine path is shared
  * by replay and live (replay = live except source + pace), so a source plugged here is exercised
  * identically by both.</p>
  */

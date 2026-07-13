@@ -3,10 +3,10 @@ package ch.tarvynanalytics.corrcalc.graphs.pipeline.detect;
 import ch.tarvynanalytics.graphs.algos.RegimeConfig;
 
 /**
- * The pipeline-side (market/cadence) tuning of the H2R-2 regime-state backbone: the asset-agnostic
+ * The pipeline-side (market/cadence) tuning of the regime-state backbone: the asset-agnostic
  * GAL {@link RegimeConfig} (the two Schmitt marks + persistence run) plus the CGP density-prep
  * cadence — how the per-window density stream is aggregated and smoothed into the daily level series
- * the {@code RegimeStateDetector} consumes. The split is deliberate (design §1.2/§5.2): GAL owns the
+ * the {@code RegimeStateDetector} consumes. The split is deliberate: GAL owns the
  * cadence-agnostic detector numerics, CGP owns the aggregation/smoothing <em>policy</em> (family
  * invariant "the core is asset-agnostic; this repo holds the edges").
  *
@@ -14,7 +14,7 @@ import ch.tarvynanalytics.graphs.algos.RegimeConfig;
  * key {@code SessionPolicy.INTRADAY_UTC_DAY} uses), matching the spike's daily means
  * ({@code h2r1_regime_model.py}: "aggregate 1-min density to daily means"). It is a calendar-day
  * fold rather than a fixed bar count because trading gaps make bars-per-day vary — one density per
- * UTC day is the invariant, not one per N bars (design §5.1/§8.4). {@code confirmBars} on the GAL
+ * UTC day is the invariant, not one per N bars. {@code confirmBars} on the GAL
  * detector is therefore a <em>sample</em> count that equals a day count at this cadence: the settled
  * crypto {@code confirmBars=3} ≈ 3 days.</p>
  *
@@ -39,7 +39,7 @@ public record RegimeTimescaleConfig(RegimeConfig regime, int smoothWindow) {
     /**
      * The settled crypto regime tuning: the GAL {@link RegimeConfig#crypto()} marks
      * ({@code hi=0.85, lo=0.45, confirmBars=3}) over a <strong>3-day</strong> trailing-median smooth of
-     * the daily-aggregated density — the exact density prep the H2R-5 quant round validated on the
+     * the daily-aggregated density — the exact density prep the quant rounds validated on the
      * DATA-1 continuous 17-symbol tape (13 clean fused-regime cycles, calm FA 0.003–0.008/day;
      * each onset is knowable at the end of day D with no look-ahead).
      *

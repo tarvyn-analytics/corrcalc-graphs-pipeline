@@ -35,7 +35,7 @@ import java.time.LocalDate;
  *                            {@code null} to not save
  * @param fireMode            which detector drives the product fire-stream: {@code "cusum"} (the
  *                            default adaptive-CUSUM detector — the n=8 in-span product) or
- *                            {@code "regime"} (the H2R-2 level+hysteresis regime backbone on the
+ *                            {@code "regime"} (the level+hysteresis regime backbone on the
  *                            daily-smoothed density — the continuous-tape fire, with the CUSUM demoted
  *                            to annotation)
  * @param observeDensity      when {@code true}, the engine forwards each finalized smoothed daily
@@ -65,11 +65,11 @@ public record ReplayOptions(
     public static final String LEADING_WARMUP = "leading-warmup";
     /** The walk-forward calm-block mode label. */
     public static final String CALM_BLOCK = "calm-block";
-    /** The adaptive (online walk-forward) mode label (H2 PR-5). */
+    /** The adaptive (online walk-forward) mode label. */
     public static final String ADAPTIVE = "adaptive";
     /** The default adaptive-CUSUM fire mode (the in-span n=8 product). */
     public static final String CUSUM = "cusum";
-    /** The H2R-2 regime-backbone fire mode (the continuous-tape product). */
+    /** The regime-backbone fire mode (the continuous-tape product). */
     public static final String REGIME = "regime";
 
     /** Validates the knobs, throwing {@link IllegalArgumentException} with the offending value bracketed. */

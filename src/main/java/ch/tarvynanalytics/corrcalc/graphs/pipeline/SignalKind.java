@@ -1,7 +1,7 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 
 /**
- * The direction of a structural-change signal. The S3 detector is two-sided (build-design §3.3):
+ * The direction of a structural-change signal. The S3 detector is two-sided:
  * the upper CUSUM arm fires a {@link #FUSION} (the correlation structure tightened — an
  * exit/risk-on-correlation alert), and the lower arm a {@link #DEFUSION} (the structure loosened —
  * the symmetric re-entry mirror). v1 opens alerts on {@link #FUSION}; {@link #DEFUSION} is carried

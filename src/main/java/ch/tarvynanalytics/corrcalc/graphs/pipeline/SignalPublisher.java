@@ -6,7 +6,7 @@ import java.util.Optional;
  * Ties the output stages together: a detected {@link StructuralSignal} is passed through the
  * {@link SignalFilter}, the verdict is attached to the signal, and unless the filter suppressed it
  * the signal is published to the {@link SignalSink}. This is the {@code filter → sink} tail of the
- * {@code S2 → S1 → S3 → filter → sink} pipeline (build-design §5.2/§5.3).
+ * {@code S2 → S1 → S3 → filter → sink} pipeline.
  */
 public final class SignalPublisher {
 

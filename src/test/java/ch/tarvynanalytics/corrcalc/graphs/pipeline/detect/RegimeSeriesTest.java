@@ -199,7 +199,7 @@ class RegimeSeriesTest {
     }
 
     /**
-     * Coverage gap #4 from H2R-4: the {@link ch.tarvynanalytics.corrcalc.graphs.pipeline.RegimeEventKind#OPEN_AT_EOF}
+     * Covers the daily-aggregation boundary: the {@link ch.tarvynanalytics.corrcalc.graphs.pipeline.RegimeEventKind#OPEN_AT_EOF}
      * path — a tape that ends mid-regime so the flush emits the open day and the engine reports the
      * regime as open rather than force-closing it. (RUN-2 never exercised this: its last regime
      * cleared 2024-05-18, ~4.5 months before tape end.)

@@ -11,7 +11,7 @@ import java.time.Instant;
  * final epoch) is saved as this artifact and primes a later run's calm-block source, so a reported
  * lead time or all-clear is never start-point-dependent. Persistence is the package-private
  * {@link CalibrationStore} (Jackson at the CGP edge — the lib defines the <em>value</em>, the
- * pipeline defines the <em>persisted artifact</em>; zero-dep line, design §2.2).
+ * pipeline defines the <em>persisted artifact</em>; the lib stays dependency-free).
  *
  * @param schemaVersion the artifact format version; always {@link #SCHEMA_VERSION} for artifacts
  *                      written by this build (a reader rejects versions it does not understand)

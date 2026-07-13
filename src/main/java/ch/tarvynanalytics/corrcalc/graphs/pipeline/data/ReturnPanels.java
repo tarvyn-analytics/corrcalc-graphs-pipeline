@@ -12,7 +12,7 @@ import java.util.TreeSet;
 /**
  * Builds aligned {@link ReturnPanel}s from per-symbol price bars — a faithful Java port of the
  * crypto spike's {@code replay_crypto_panel.build_crypto_intraday_panel} /
- * {@code build_crypto_daily_returns}. The two correctness rules it enforces (build-design §1):
+ * {@code build_crypto_daily_returns}. The two correctness rules it enforces:
  *
  * <ul>
  *   <li><strong>Common-timestamp intersection.</strong> Only timestamps present for <em>every</em>

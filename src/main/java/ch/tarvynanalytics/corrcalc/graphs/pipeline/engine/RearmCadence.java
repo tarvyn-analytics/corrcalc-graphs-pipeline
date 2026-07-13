@@ -6,7 +6,7 @@ import ch.tarvynanalytics.graphs.algos.model.ChangeSignal;
 import ch.tarvynanalytics.graphs.algos.model.FireDirection;
 
 /**
- * The continuous-stream re-arm cadence (H2 numerics spec Q4): decides <em>when</em> the engine
+ * The continuous-stream re-arm cadence: decides <em>when</em> the engine
  * advances the detector's window id, so the GAL-28 {@code reset_ids} re-arm (clear the one-fire
  * debounce, reset the firing arm) happens once per resolved regime event — a multi-year stream then
  * fires once per event instead of once ever, while inter-event calm FA stays at the single-armed

@@ -9,8 +9,7 @@ import java.time.Instant;
  * {@link CalibrationArtifact} (a calm window calibrated offline, preceding and disjoint from the
  * detection span), so it is ready before the stream starts and the detector calibrates on the
  * <em>first</em> window-fill snapshot — no leading accumulation, no start-point dependence. This is
- * the mode that makes the walk-forward tape-test behaviour reachable through the replay CLI
- * (H2 design §2.1).
+ * the mode that makes the walk-forward tape-test behaviour reachable through the replay CLI.
  */
 final class CalmBlockCalibration implements CalibrationSource {
 

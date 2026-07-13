@@ -4,7 +4,7 @@ import java.util.List;
 
 /**
  * A {@link SignalSink} that fans one signal out to every configured downstream sink, in order. This
- * is the multi-sink delivery seam (build-design §5.2): wire a Kafka sink, a Slack sink and an email
+ * is the multi-sink delivery seam: wire a Kafka sink, a Slack sink and an email
  * sink behind one {@code FanOutSink} and the pipeline publishes once. The list of delegates is
  * defensively copied and immutable.
  */

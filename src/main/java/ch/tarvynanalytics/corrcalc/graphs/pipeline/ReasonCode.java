@@ -6,7 +6,7 @@ package ch.tarvynanalytics.corrcalc.graphs.pipeline;
  * free-form narrator. Each transition's decision decomposes into a handful of these gate/magnitude
  * facts ({@link PipelineObservation#reasonCodes()}); the human sentence is a fixed one-phrase-per-code
  * lookup ({@link #phrase()}). Cost is O(codes), not O(market situations) — so new regimes never need
- * new prose. This is the H1 "narrator substitute" (see the meta-repo ROADMAP).
+ * new prose.
  *
  * <p>The codes are machine-readable facts; rendering them to text is the only place a phrase lives,
  * which keeps a future structured (NDJSON) stream and the human log in lock-step.</p>
