@@ -3,7 +3,7 @@ package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 import java.time.Instant;
 
 /**
- * A bounded calibration-lifecycle event (H2 design §3.2): a finite {@link CalibrationEventKind}
+ * A bounded calibration-lifecycle event: a finite {@link CalibrationEventKind}
  * plus the raw before/after facts — never free-form narration (the human phrase is a fixed lookup,
  * exactly like {@link ReasonCode}). "recalibrated, μ X→Y" is {@code RECALIBRATED} +
  * {@code (muBefore, muAfter)}. Emitted by the adaptive calibration source and forwarded once per

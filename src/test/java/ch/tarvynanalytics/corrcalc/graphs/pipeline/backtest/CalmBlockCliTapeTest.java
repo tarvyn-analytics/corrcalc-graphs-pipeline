@@ -34,13 +34,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Opt-in H2 PR-3 acceptance (the owner's headline): the walk-forward tape-test verdicts
+ * Opt-in acceptance (the owner's headline): the walk-forward tape-test verdicts
  * ({@link DefusionGaugeRecoveryTapeTest} — every genuinely-recovering event sounds the all-clear,
  * the choppy {@code may2021_selloff} stays suppressed) must reproduce <strong>through the replay
  * CLI</strong> under {@code --calibration calm-block}. Per event: the calm-block artifact is
  * calibrated offline on the event's leak-free calm window (exactly the real walk-forward
  * calibration, {@link ChangeDetectors#calibrate} over the {@link SeriesBuilder} series), persisted,
- * and handed to the CLI; the full product path (S1→S3 detector with the de-fusion gauge, CGP-14)
+ * and handed to the CLI; the full product path (S1→S3 detector with the de-fusion gauge)
  * then replays the recovery tape and the NDJSON fire stream is asserted. <strong>Skipped
  * unless</strong> {@code -Dcrypto.data.dir=...} points at the (gitignored) raw bars.
  *

@@ -270,7 +270,7 @@ public final class PipelineEngine {
         /**
          * The run's calibration source (default: {@link CalibrationSources#leadingWarmup} over
          * {@code calmBars} window-points — the engine's original behaviour). The seam the walk-forward
-         * calm-block and adaptive modes plug into (H2 design §3.2); it lives on the engine, not on a
+         * calm-block and adaptive modes plug into; it lives on the engine, not on a
          * driver, so replay and live exercise the identical calibration lifecycle.
          *
          * @param source the source, or {@code null} to keep the leading-warmup default
@@ -282,7 +282,7 @@ public final class PipelineEngine {
         }
 
         /**
-         * Enables the {@code --observe density} observation mode (CGP-30): in regime-backbone fire mode,
+         * Enables the {@code --observe density} observation mode: in regime-backbone fire mode,
          * the engine forwards each finalized daily smoothed level to
          * {@link PipelineObserver#onDensityLevel} as it is emitted from the daily aggregator. The
          * {@link ch.tarvynanalytics.corrcalc.graphs.pipeline.NdjsonObserver} converts these to
@@ -296,14 +296,14 @@ public final class PipelineEngine {
         }
 
         /**
-         * Selects the <strong>regime-backbone</strong> fire mode (H2R-2): the continuous-tape fire is the
-         * level+hysteresis Schmitt trigger on the daily-smoothed correlation density (design §5.3), and
+         * Selects the <strong>regime-backbone</strong> fire mode: the continuous-tape fire is the
+         * level+hysteresis Schmitt trigger on the daily-smoothed correlation density, and
          * the CUSUM detector is demoted to an annotation layer — it still scores and observes, but its
          * fires no longer reach the product fire-stream. One {@link StructuralSignal} is published per
          * regime edge ({@link RegimeEventKind#FUSION_ONSET} → {@link SignalKind#FUSION},
          * {@link RegimeEventKind#CALM_ONSET} → {@link SignalKind#DEFUSION}) and one {@link RegimeEvent} is
          * forwarded to the observer. Leaving this unset keeps the default <strong>adaptive-CUSUM</strong>
-         * fire mode, byte-for-byte the pre-H2R behaviour (the n=8 regression path).
+         * fire mode, byte-for-byte the n=8 regression path (pinned by the leading-warmup regression).
          *
          * @param regimeConfig the regime timescale tuning, or {@code null} to keep the CUSUM fire mode
          * @return this builder
@@ -345,7 +345,7 @@ public final class PipelineEngine {
         private final List<String> universe;
         private final CalibrationSource calibrationSource;
 
-        // Regime-backbone fire mode (H2R-2): null in the default adaptive-CUSUM mode. When present, the
+        // Regime-backbone fire mode: null in the default adaptive-CUSUM mode. When present, the
         // daily-density Schmitt trigger is the fire and the CUSUM path (below) is demoted to annotation.
         private final RegimeSeries.DailyAggregator regimeAgg;
         private final RegimeDetector regimeDetector;
@@ -409,7 +409,7 @@ public final class PipelineEngine {
             double[][] current = toArray(pearson, order);
             if (regimeMode()) {
                 // The regime read is independent of the CUSUM calibration: it consumes the raw density
-                // from the first window-fill, aggregated to daily means then smoothed (design §5.1).
+                // from the first window-fill, aggregated to daily means then smoothed.
                 double density = ChangeMetricsAnalyzer.analyze(current, current, tau).densityLevel();
                 for (RegimeSeries.DailyLevel daily : regimeAgg.onDensity(asOf, density)) {
                     stepRegime(daily);
@@ -426,7 +426,7 @@ public final class PipelineEngine {
          * Advances the regime Schmitt trigger by one smoothed daily level and, on a crossing, opens or
          * closes a fused regime — publishing one {@link StructuralSignal} and forwarding one
          * {@link RegimeEvent}. The down-crossing (calm onset) is the all-clear; the up-crossing opens a
-         * regime. This is the whole continuous-tape fire (design §5.3): no re-arm clock, no freeze.
+         * regime. This is the whole continuous-tape fire: no re-arm clock, no freeze.
          */
         private void stepRegime(RegimeSeries.DailyLevel daily) {
             if (observeDensity) {
@@ -529,14 +529,14 @@ public final class PipelineEngine {
             // The online half of the calibration seam: the adaptive source learns from every scored
             // transition (frozen sources no-op). The freeze condition is the in-fire state PLUS the
             // whole fused-awaiting-re-arm span — the baseline may not move while an all-clear is
-            // still pending against it (numerics spec Q2 amendment; the may2021 suppression guard).
+            // still pending against it (the may2021-class suppression guard).
             boolean freeze = obs.lifecycle() != DetectorState.ARMED || rearm.awaitingRearm();
             calibrationSource.observeDetection(asOf, sig.metrics().weightedChange(),
                     sig.metrics().densityLevel(), freeze);
             if (rearmed == RearmCadence.Rearm.EXPIRED) {
                 // The backstop expired an unresolved question: the freeze protected a PENDING
                 // all-clear; expiry ends it, so the adaptive source re-baselines and re-warms
-                // (numerics spec Q4.1 amendment — otherwise the stale frozen baseline re-fires
+                // (otherwise the stale frozen baseline re-fires
                 // on the elevated structure every backstop period). The detector-side question
                 // state must close with it: recalibrate deliberately keeps the wasFused latch and
                 // gauge, so without the boundary reset the expired question could still sound a
@@ -552,7 +552,7 @@ public final class PipelineEngine {
             }
             // In the regime-backbone mode the CUSUM is demoted to annotation: its fired fact stays on the
             // observation stream (above) but never counts as a product fire or reaches the fire-stream —
-            // the regime edge is the fire (design §5.3). In the default mode this is the product fire.
+            // the regime edge is the fire. In the default mode this is the product fire.
             if (sig.fired() && !regimeMode()) {
                 fires++;
                 // A demoted source (post-timeout re-warm-up) does not vouch for alerts: the raw fact
@@ -574,8 +574,8 @@ public final class PipelineEngine {
          * Forwards every pending calibration-lifecycle event to the observer and, when the event
          * re-baselined the source ({@code RECALIBRATED}/{@code EPOCH_OPENED}/{@code REGIME_TIMEOUT}/a
          * re-promotion), installs the fresh calibration on the running detector — a controlled
-         * rebuild through the lib's {@code recalibrate}, arms reset, matrix/latch/gauge preserved
-         * (numerics spec Q1). A demotion event carries no new baseline, so it is forwarded only.
+         * rebuild through the lib's {@code recalibrate}, arms reset, matrix/latch/gauge preserved.
+         * A demotion event carries no new baseline, so it is forwarded only.
          *
          * @param recalibrate whether a running detector exists to re-baseline (false during the
          *                    initial calibration hop, where the detector is built from scratch)
@@ -627,7 +627,7 @@ public final class PipelineEngine {
         /**
          * End-of-stream: flush the daily aggregator so the open day is finalized and its trailing-median
          * smoothed level is emitted, step the trigger over it, then — if the regime is still fused —
-         * report it open at EOF instead of force-closing it (design §8.5). Idempotent.
+         * report it open at EOF instead of force-closing it. Idempotent.
          */
         void finish() {
             if (!regimeMode() || finished) {

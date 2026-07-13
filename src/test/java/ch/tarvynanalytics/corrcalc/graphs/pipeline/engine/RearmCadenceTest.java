@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 /**
  * H2 Q4 oracle for the re-arm cadence: hand-constructed signal sequences with known
  * fusion/all-clear/relaxation points, window-id trajectories pinned as literals (the naive-loop
- * reference is the hand trace in the numerics spec). {@code h=8}, {@code relaxFrac=0.25} ⇒ the
+ * reference is an independent hand trace). {@code h=8}, {@code relaxFrac=0.25} ⇒ the
  * relaxation ceiling is {@code S⁺ < 2}; the level gate literal is {@code L=0.5}.
  */
 class RearmCadenceTest {

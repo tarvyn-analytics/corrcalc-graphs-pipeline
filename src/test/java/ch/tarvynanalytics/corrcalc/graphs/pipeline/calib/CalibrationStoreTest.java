@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * PR-2 acceptance: a known artifact round-trips save → load to an equal record, the schema version
+ * Round-trip contract: a known artifact round-trips save → load to an equal record, the schema version
  * is pinned, and the NaN de-fusion-uncalibrated marker survives persistence.
  */
 class CalibrationStoreTest {

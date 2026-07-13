@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The architectural reason S3 is on the crypto critical path (crypto-n8-verdict §4): in an
+ * The architectural reason S3 is on the crypto critical path (the spike n=8 verdict): in an
  * already-fused regime the absolute density stays saturated near 1.0, so the density-level baseline
  * (CUSUM on density) has no headroom and cannot fire — but the structure is still <em>moving</em>,
  * so the S3 change detector (CUSUM on weighted change) recovers it. This test drives both detectors

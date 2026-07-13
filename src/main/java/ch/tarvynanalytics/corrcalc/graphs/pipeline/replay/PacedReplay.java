@@ -192,7 +192,7 @@ public final class PacedReplay {
             return;
         }
         if (ReplayOptions.REGIME.equals(opts.fireMode())) {
-            // CGP-28: under the regime-backbone fire mode the persisted artifact would belong to the
+            // Under the regime-backbone fire mode the persisted artifact would belong to the
             // demoted CUSUM annotation, not the regime product — and its final epoch leaves the source
             // window unstamped, so CalibrationArtifact validation would throw after the run completes.
             // Saving it is meaningless for the regime backbone, so skip it cleanly (do not throw).
@@ -242,7 +242,7 @@ public final class PacedReplay {
     }
 
     /**
-     * The regime timescale tuning for a regime-backbone run (H2R-2), or {@code null} for the default
+     * The regime timescale tuning for a regime-backbone run, or {@code null} for the default
      * adaptive-CUSUM fire mode. The market itself is validated in {@link #resolveConfig}; crypto is the
      * only wired market today.
      */

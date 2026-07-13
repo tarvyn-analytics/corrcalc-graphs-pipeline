@@ -1,7 +1,7 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 
 /**
- * The finite calibration-lifecycle vocabulary (H2 design §3.2) — mirrors {@link ReasonCode}: a
+ * The finite calibration-lifecycle vocabulary — mirrors {@link ReasonCode}: a
  * bounded enum whose human phrase is a fixed table ({@link #phrase()}), never generated text.
  */
 public enum CalibrationEventKind {

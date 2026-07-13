@@ -107,9 +107,9 @@ final class RunDigest {
     }
 
     /**
-     * Folds one regime-backbone edge into the running figures (H2R-2): a fusion onset opens a fused
+     * Folds one regime-backbone edge into the running figures: a fusion onset opens a fused
      * regime, a calm onset is the all-clear, and an open-at-EOF marks a regime still fused at tape end.
-     * The fused-regime cycle count is the headline continuous-tape acceptance number (design §6.3).
+     * The fused-regime cycle count is the headline continuous-tape acceptance number.
      */
     void addRegimeEvent(RegimeEvent event) {
         switch (event.kind()) {
@@ -123,7 +123,7 @@ final class RunDigest {
         return bySeverity.getOrDefault(s, 0L);
     }
 
-    /** Fused-regime cycles opened this run (fusion onsets) — the continuous-tape headline (design §6.3). */
+    /** Fused-regime cycles opened this run (fusion onsets) — the continuous-tape headline. */
     long fusedRegimeCount() {
         return fusedRegimeCount;
     }

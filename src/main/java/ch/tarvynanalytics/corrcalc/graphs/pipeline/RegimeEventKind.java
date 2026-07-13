@@ -1,12 +1,12 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 
 /**
- * The finite vocabulary of a regime-state edge on the continuous-tape backbone (H2R-2 design §3, §6.1)
+ * The finite vocabulary of a regime-state edge on the continuous-tape backbone
  * — mirrors {@link CalibrationEventKind}/{@link ReasonCode}: a bounded enum whose human phrase is a
  * fixed table ({@link #phrase()}), never generated text. A {@code RegimeStateDetector} down/up-crossing
  * is reported as one of these; the paired {@link #FUSION_ONSET}/{@link #CALM_ONSET} bracket one fused
  * regime, and {@link #OPEN_AT_EOF} marks a regime still fused when the tape ends (reported honestly,
- * not force-closed — design §5/§8.5).
+ * not force-closed).
  */
 public enum RegimeEventKind {
 
@@ -34,8 +34,8 @@ public enum RegimeEventKind {
     }
 
     /**
-     * The product {@link SignalKind} a regime edge publishes as (design §5.3: an onset <em>is</em> a
-     * fusion, a down-crossing <em>is</em> the all-clear). {@link #OPEN_AT_EOF} publishes nothing — it is
+     * The product {@link SignalKind} a regime edge publishes as: an onset <em>is</em> a
+     * fusion, a down-crossing <em>is</em> the all-clear. {@link #OPEN_AT_EOF} publishes nothing — it is
      * an observability marker, not a fire — so it has no signal kind.
      *
      * @return {@link SignalKind#FUSION} for an onset, {@link SignalKind#DEFUSION} for a calm-onset

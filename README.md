@@ -1,5 +1,7 @@
 # corrcalc-graphs-pipeline
 
+> Research program frozen 2026-07; this library is complete and maintained as-is. Entry point: [corrcalc-graphs-meta](https://github.com/tarvyn-analytics/corrcalc-graphs-meta).
+
 The **Initiative-S S4** streaming structural-change pipeline service — the integration
 that wires the two Initiative-S primitives into one product:
 
@@ -118,14 +120,20 @@ INFO  density=1.000  wD=0.312  S+=9.46  S-=0.00
 | `--calm-bars <N>` | ~40% of the series | window-points used to calibrate the detector (a leading warm-up) |
 | `--limit <N>` | unlimited | stop after N detection points |
 | `--heartbeat-every <N>` | `1` | forward one observation in every N (thin a noisy stream) |
-| `--observe <spec>` | `all` | which transitions reach the heartbeat: `all` \| `fires` \| `change>=<x>` \| `activation>=<x>` |
+| `--observe <spec>` | `all` | which transitions reach the heartbeat: `all` \| `fires` \| `change>=<x>` \| `activation>=<x>` \| `density` (per-day smoothed density record; regime fire mode + `--style ndjson`) |
+| `--style technical\|readable\|ndjson` | `technical` | terse metrics; an annotated stream with legend/banner/severity; or machine-readable NDJSON on stdout (diagnostics to stderr, pipes clean) |
+| `--calibration leading-warmup\|calm-block\|adaptive` | `leading-warmup` | how the detector is calibrated: leading prefix; primed from a persisted walk-forward artifact; or the adaptive online walk-forward estimator |
+| `--calibration-artifact <path>` | — | the artifact JSON (required for `calm-block`; optional operator-vouched prior for `adaptive`) |
+| `--save-calibration <path>` | — | persist this run's resulting calibration artifact |
+| `--fire-mode cusum\|regime` | `cusum` | which detector drives the fire-stream: the adaptive-CUSUM detector (in-span n=8 product) or the regime backbone on daily-smoothed density (continuous-tape fire) |
 | `--universe <path>` | `<data-dir>/<event>_universe.csv` | explicit symbol-list CSV |
 | `--from` / `--to <YYYY-MM-DD>` | — | optional UTC date filter on bars |
 | `-v, --verbose` | off | DEBUG logging |
 
-Calibration here is a leading warm-up of the replayed series (a pragmatic choice for a first visual
-impression), not the rigorous walk-forward calm block the `backtest` regression uses. Exit codes:
-`0` ran, `2` usage/bad-argument, `1` input-IO.
+Default calibration is a leading warm-up of the replayed series (a pragmatic choice for a first
+visual impression), not the rigorous walk-forward calm block the `backtest` regression uses —
+pick `--calibration calm-block|adaptive` for the honest modes. Exit codes: `0` ran,
+`2` usage/bad-argument, `1` input-IO. `--help` documents every flag.
 
 ### Two output seams — fires vs. observations
 

@@ -1,7 +1,7 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline.calib;
 
 /**
- * The drift meta-monitor (H2 numerics spec Q3): a two-sided <strong>Page-Hinkley</strong> test on
+ * The drift meta-monitor: a two-sided <strong>Page-Hinkley</strong> test on
  * the <em>admitted-calm</em> {@code c_t} series — it watches the calm statistics themselves, so it
  * opens a calibration epoch only when the calm baseline has durably moved (the detector fires on
  * events; the meta-monitor re-baselines on shifts) — plus the σ-ratio guard for a variance regime

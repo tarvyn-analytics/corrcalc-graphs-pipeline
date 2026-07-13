@@ -21,7 +21,7 @@ import java.util.Optional;
  *       {@code levelValues} = density — the same split the S3 {@code CusumChangeDetector} makes.</li>
  * </ul>
  *
- * <p>Rule (spike §1.2): {@code z_t = (fire_t − μ)/σ}; {@code S+_t = max(0, S+_{t−1} + z_t − k)};
+ * <p>Rule (the spike's replay_alert): {@code z_t = (fire_t − μ)/σ}; {@code S+_t = max(0, S+_{t−1} + z_t − k)};
  * {@code S−_t = max(0, S−_{t−1} − z_t − k)}; gate A is {@code level_t ≥ L}; gate B is
  * {@code S+_t > h}; fire on the first {@code A ∧ B}, then debounce (reset {@code S+}). A NaN fire
  * value is a gap: the accumulators carry unchanged and no alert opens (matching the S3 detector).</p>

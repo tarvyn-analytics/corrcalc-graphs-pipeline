@@ -33,8 +33,8 @@ public final class NdjsonObserver implements PipelineObserver {
      * The record-schema version; bump on any incompatible change to the emitted fields.
      * v3: the {@code calibEvent} record (adaptive lifecycle), epoch provenance on {@code config}
      * ({@code epochId}, {@code calibSourceFrom/To}), and the digest's {@code epochsOpened} /
-     * {@code recalibrations} / {@code muJourney} block (H2 PR-6).
-     * v4 (H2R-2): the regime-backbone fire mode — the {@code regime} record (a regime-state edge:
+     * {@code recalibrations} / {@code muJourney} block.
+     * v4: the regime-backbone fire mode — the {@code regime} record (a regime-state edge:
      * fusion onset / calm onset / open-at-EOF, with the smoothed density, crossing confidence and
      * fused dwell) and the digest's {@code fusedRegimeCount} / {@code calmOnsets} /
      * {@code regimeOpenAtEof} block. On the continuous tape a {@code FUSION} is now a regime onset,
@@ -223,7 +223,7 @@ public final class NdjsonObserver implements PipelineObserver {
     }
 
     /**
-     * One {@code regime} record — a regime-state edge on the continuous-tape backbone (H2R-2): the
+     * One {@code regime} record — a regime-state edge on the continuous-tape backbone: the
      * bounded {@link RegimeEventKind kind}, the smoothed density and crossing confidence at the edge,
      * the paired fusion onset, and the fused dwell in days (0 at an onset). A {@code FUSION_ONSET} is a
      * fusion, a {@code CALM_ONSET} the all-clear, an {@code OPEN_AT_EOF} a regime still fused at tape end.
@@ -317,8 +317,6 @@ public final class NdjsonObserver implements PipelineObserver {
         }
         n.put("epochsOpened", d.epochsOpened());
         n.put("recalibrations", d.recalibrations());
-        // The H2R-2 regime-backbone acceptance block (design §6.3): fused-regime cycles, all-clears,
-        // and whether a regime was still open at the tape end.
         n.put("fusedRegimeCount", d.fusedRegimeCount());
         n.put("calmOnsets", d.calmOnsetCount());
         n.put("regimeOpenAtEof", d.regimeOpenAtEof());

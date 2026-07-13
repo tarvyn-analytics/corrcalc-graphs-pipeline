@@ -11,7 +11,7 @@ import java.util.List;
 /**
  * The leading-warmup {@link CalibrationSource}: accumulates the first {@code calmBars} window-points'
  * calm statistics, then calibrates once via {@link ChangeDetectors#calibrate} and freezes — the exact
- * behaviour the engine hardcoded before the seam existed (extracted verbatim, H2 design §7 PR-1).
+ * behaviour the engine hardcoded before the seam existed (extracted verbatim from the pre-seam engine).
  * This is replay's pragmatic "quick look": the baseline is whatever the series starts with, so a
  * reported lead time is start-point-dependent — the rigorous modes are the walk-forward calm-block
  * and adaptive sources.

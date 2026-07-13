@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The numerics-spec Q2 oracle for the adaptive quietness gate: the learn-gate dead zone, the
+ * The hand-trace oracle for the adaptive quietness gate: the learn-gate dead zone, the
  * freeze-during-alert rule (never learn the run-up — the covid rule), the cold-start protocol, the
  * MAD floor, and the starvation timeout. The independent reference is a naive batch filter+sort
  * re-implementation inside this test ({@link #naiveAdmitted}) plus hand-computed literals — never
@@ -244,7 +244,7 @@ class AdaptiveQuietnessGateTest {
 
     @Test
     void onRegimeExpired_LiveSource_RebaselinesOnTheRawWindowAndRewarms() {
-        // The backstop-expiry escape (spec Q4.1 amendment): same move as the starvation timeout —
+        // The backstop-expiry escape: same move as the starvation timeout —
         // re-baseline on the raw trailing window, demote, fresh warm-up — but triggered by the
         // cadence expiring an unresolved regime question instead of the rejection counter.
         AdaptiveCalibration source = source(config(2, 2.5, 0, 1000, 8));
@@ -366,7 +366,7 @@ class AdaptiveQuietnessGateTest {
 
     @Test
     void sigmaFloor_LiftsACollapsedTrailingSigmaTowardTheLongWindow() {
-        // Q3 σ-floor (H2R-1 amendment, design §5.2/§7): a brief flat calm patch collapses the 4-bar
+        // The relative σ-floor: a brief flat calm patch collapses the 4-bar
         // trailing MAD to the ε floor, but the 12-bar reference window still carries the 0↔6 swing
         // (sample σ = sqrt(72/11) ≈ 2.558), so the floor lifts σ̂ to 0.5·σ_ref ≈ 1.279 — the RUN-1
         // calm-metronome guard. Off (frac=0) the same tape leaves σ̂ at ε, byte-for-byte pre-Q3.

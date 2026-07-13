@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Pins the calibration-mode validation matrix: which of the three modes accept, require or reject
- * an artifact (H2 design §3.2 — the artifact is the calm-block baseline, an optional adaptive
+ * an artifact (the artifact is the calm-block baseline, an optional adaptive
  * prior, and meaningless under leading-warmup).
  */
 class ReplayOptionsTest {

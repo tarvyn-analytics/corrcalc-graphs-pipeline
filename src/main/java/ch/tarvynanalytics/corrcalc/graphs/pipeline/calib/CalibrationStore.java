@@ -10,7 +10,7 @@ import java.nio.file.Path;
 
 /**
  * Persists {@link CalibrationArtifact}s as human-inspectable JSON — the Jackson IO at the CGP edge
- * (the lib never sees persistence; zero-dep line, H2 design §2.2). Package-private: the public
+ * (the lib never sees persistence; the lib stays dependency-free). Package-private: the public
  * surface is the records plus the {@link CalibrationSource} seam ({@link CalibrationSources} wires
  * loading for the CLI). Non-finite doubles (the {@code NaN} de-fusion-uncalibrated marker) survive
  * the round trip as Jackson's quoted non-numeric tokens.

@@ -34,7 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * independent re-implementation of the rule the lib's {@code RecoveryGauge} is separately pinned to by
  * Oracle A1) forward over each event's recovery.
  *
- * <p>Asserts the GO bar (the gauge spec §7): the genuinely-recovering events fire the all-clear, the
+ * <p>Asserts the GO bar of the recovery-gauge validation: the genuinely-recovering events fire the all-clear, the
  * choppy non-recovery {@code may2021_selloff} is suppressed, and the gauge climbs back to ~1.0 (the
  * 0→1 recovery track). Calm false-alarm rate is 0/day by the was-fused latch (architectural — proven in
  * the oracle; not recomputed here). <strong>Skipped unless</strong>

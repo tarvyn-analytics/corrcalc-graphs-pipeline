@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * The pipeline's product: a published structural-change signal/event (build-design §5.1) — the
+ * The pipeline's product: a published structural-change signal/event — the
  * B2B "signal-as-a-product", not a UI. A dashboard becomes one consumer of this stream. Emitted by
  * the wiring when the S3 detector fires (and, optionally, on every transition for downstream
  * consumers that want the full series); passed through a {@link SignalFilter} and fanned out to the
@@ -65,7 +65,7 @@ public record StructuralSignal(
     }
 
     /**
-     * The validity verdict from the {@link SignalFilter} stage (build-design §5.3, feature #1a).
+     * The validity verdict from the {@link SignalFilter} stage.
      *
      * @param filtered {@code true} if the filter suppressed this signal as likely invalid
      * @param score    an optional confidence score in {@code [0,1]}, or {@code null} when the filter
