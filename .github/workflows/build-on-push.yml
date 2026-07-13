@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: read
+      contents: write
       packages: write
 
     steps:
@@ -52,8 +52,24 @@ jobs:
           </settings>
           XML
 
-      - name: Build, test and deploy the SNAPSHOT
+      # develop publishes the SNAPSHOT as-is; main strips the suffix and
+      # publishes the release. GitHub Packages rejects re-publishing an
+      # existing release version, so every merge to main must carry a
+      # version bump on develop first.
+      - name: Strip -SNAPSHOT for release publishing
+        if: github.ref_name == 'main'
+        run: ./mvnw --batch-mode versions:set -DremoveSnapshot -DgenerateBackupPoms=false
+
+      - name: Build, test and deploy
         run: ./mvnw --batch-mode -Ppublish clean deploy
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+
+      - name: Tag release
+        if: github.ref_name == 'main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(./mvnw --quiet help:evaluate -Dexpression=project.version -DforceStdout)
+          gh api "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/v${VERSION}" -f sha="${GITHUB_SHA}"
