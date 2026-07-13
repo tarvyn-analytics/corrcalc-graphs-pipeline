@@ -46,7 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <pre>{@code
  * ./mvnw test -Dtest=CalmBlockCliTapeTest \
- *     -Dcrypto.data.dir=../corrcalc-graphs-research-scratches/spike/crypto-data
+ *     -Dcrypto.data.dir=/path/to/crypto-data
  * }</pre>
  */
 @EnabledIfSystemProperty(named = "crypto.data.dir", matches = ".+")

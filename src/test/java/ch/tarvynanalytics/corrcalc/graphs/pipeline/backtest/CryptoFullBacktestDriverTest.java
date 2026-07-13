@@ -17,7 +17,7 @@ import java.util.stream.Stream;
  *
  * <pre>{@code
  * ./mvnw test -Dtest=CryptoFullBacktestDriverTest \
- *     -Dcrypto.data.dir=../corrcalc-graphs-research-scratches/spike/crypto-data
+ *     -Dcrypto.data.dir=/path/to/crypto-data
  * }</pre>
  */
 @EnabledIfSystemProperty(named = "crypto.data.dir", matches = ".+")

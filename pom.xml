@@ -4,15 +4,23 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>ch.tarvynanalytics.corrcalc.graphs</groupId>
     <artifactId>corrcalc-graphs-pipeline</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>1.0.0-SNAPSHOT</version>
     <packaging>jar</packaging>
     <name>corrcalc-graphs streaming pipeline</name>
-    <description>Initiative-S S4: the streaming structural-change pipeline service. Wires the
-        corrcalc-lib online correlation engine (S1) to the graphs-algos-lib temporal change
-        detector (S3) over one return stream per timescale, runs a per-asset alert layer, and
-        publishes structural-change signals through a filter + multi-sink delivery seam. The
-        first milestone reproduces the n=8 crypto detection (crypto_lead_table.csv) as a pinned
-        regression. Consumes correlation matrices; produces signals — not a UI.</description>
+    <description>Streaming structural-change pipeline service. Wires the corrcalc-lib online
+        correlation engine to the graphs-algos-lib temporal change detector over one return
+        stream per timescale, runs a per-asset alert layer, and publishes structural-change
+        signals through a filter + multi-sink delivery seam. Validated by a pinned regression
+        over eight historical crypto events. Consumes correlation matrices; produces signals —
+        not a UI.</description>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
 
     <properties>
         <!-- The pipeline targets release 25 — the family build JDK (corrcalc-lib already
@@ -23,13 +31,13 @@
         <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <junit.version>5.12.2</junit.version>
-        <corrcalc-lib.version>1.2.2-SNAPSHOT</corrcalc-lib.version>
-        <graphs-algos-lib.version>0.1.0-SNAPSHOT</graphs-algos-lib.version>
+        <corrcalc-lib.version>1.2.2</corrcalc-lib.version>
+        <graphs-algos-lib.version>1.0.0</graphs-algos-lib.version>
         <!-- Logging: the CLI/replay edge wires slf4j + logback. The asset-agnostic core libs stay
              dependency-lean; this consumer module is the only place runtime deps are allowed. -->
         <slf4j.version>2.0.16</slf4j.version>
         <logback.version>1.5.12</logback.version>
-        <!-- Jackson: the structured NDJSON observation stream is the machine product / S5 contract,
+        <!-- Jackson: the structured NDJSON observation stream is the machine product contract,
              so it is serialized with the standard JSON library rather than bespoke code. An edge
              concern — the asset-agnostic libs never see it. -->
         <jackson.version>2.18.2</jackson.version>
@@ -75,12 +83,13 @@
         </snapshotRepository>
     </distributionManagement>
 
-    <!-- corrcalc-lib-core (S1) and graphs-algos-lib (S3) are PRIVATE GitHub Packages
-         artifacts. For local work run `./mvnw install` once in each lib checkout (no token
-         needed). CI resolves both via a single `github` server in settings.xml whose token has
-         read:packages on BOTH tarvyn-analytics/corrcalc-lib and tarvyn-analytics/graphs-algos-lib.
-         Maven matches the server id to the repository id, so both repositories below share id
-         `github` and the one credential authenticates both. -->
+    <!-- corrcalc-lib-core and graphs-algos-lib are GitHub Packages artifacts (resolving
+         needs a token with read:packages). For tokenless local work run `./mvnw install` once
+         in each lib checkout. CI resolves both via a single `github` server in settings.xml
+         whose token has read:packages on BOTH tarvyn-analytics/corrcalc-lib and
+         tarvyn-analytics/graphs-algos-lib. Maven matches the server id to the repository id,
+         so both repositories below share id `github` and the one credential authenticates
+         both. -->
     <repositories>
         <repository>
             <id>github</id>
@@ -112,13 +121,13 @@
     </repositories>
 
     <dependencies>
-        <!-- S1: the online rolling-correlation engine (stream package). -->
+        <!-- The online rolling-correlation engine (stream package). -->
         <dependency>
             <groupId>ch.tarvynanalytics.corrcalc</groupId>
             <artifactId>corrcalc-lib-core</artifactId>
             <version>${corrcalc-lib.version}</version>
         </dependency>
-        <!-- S3: the temporal change-metric + CUSUM change detector. -->
+        <!-- The temporal change-metric + CUSUM change detector. -->
         <dependency>
             <groupId>ch.tarvynanalytics.graphs</groupId>
             <artifactId>graphs-algos-lib</artifactId>

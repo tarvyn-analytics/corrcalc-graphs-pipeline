@@ -17,7 +17,7 @@ import java.util.stream.Stream;
  * {@code crypto_lead_table.csv} bit-for-bit using the density-level baseline detector. Driven by a
  * compact committed fixture — per event/timescale the calm calibration {@code (μ, σ, L)} plus the
  * event-window {@code (epoch_second, n_edges)} series — exported by
- * {@code corrcalc-graphs-research-scratches/spike/export_pipeline_fixture.py} (the 2.4 GB of raw
+ * an offline exporter over the reference Python implementation (the 2.4 GB of raw
  * bars stays out of git). Because the CUSUM resets at the event-window start and density
  * {@code = n_edges/|P|} is integer-exact vs the Python engine, the calibration plus the event-window
  * slice fully determine every column. The full-pipeline reproduction from raw bars lives in the

@@ -47,7 +47,7 @@ import java.util.Locale;
 import java.util.Optional;
 
 /**
- * The pipeline orchestrator — the single composition point where the two Initiative-S primitives and
+ * The pipeline orchestrator — the single composition point where the two upstream library engines and
  * the output stages are wired together, independent of <em>where the data comes from</em> (a replay, a
  * live feed) and <em>how it is paced</em>. A driver feeds it aligned return bars; the engine owns the
  * rest:
