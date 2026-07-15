@@ -1,0 +1,112 @@
+package ch.tarvynanalytics.corrcalc.graphs.pipeline;
+
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.engine.RunSummary;
+import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import static ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObservationTest.observation;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+class ThinningObserverTest {
+
+    @Test
+    void onObservation_EveryThird_ForwardsOneInThree() {
+        List<PipelineObservation> kept = new ArrayList<>();
+        ThinningObserver thin = new ThinningObserver(kept::add, 3);
+
+        for (int i = 0; i < 7; i++) {
+            thin.onObservation(observation(0.01 * i, 0.0, 0.0, false));
+        }
+
+        assertEquals(2, kept.size(), "7 observations, every 3rd -> indices 3 and 6");
+    }
+
+    @Test
+    void onObservation_EveryOne_ForwardsAll() {
+        List<PipelineObservation> kept = new ArrayList<>();
+        ThinningObserver thin = new ThinningObserver(kept::add, 1);
+        thin.onObservation(observation(0.0, 0.0, 0.0, false));
+        thin.onObservation(observation(0.0, 0.0, 0.0, false));
+        assertEquals(2, kept.size());
+    }
+
+    @Test
+    void constructor_RejectsNullDelegateAndNonPositiveN() {
+        assertThrows(IllegalArgumentException.class, () -> new ThinningObserver(null, 1));
+        assertThrows(IllegalArgumentException.class, () -> new ThinningObserver(o -> { }, 0));
+    }
+
+    @Test
+    void onStart_ForwardsToDelegate() {
+        List<RunContext> started = new ArrayList<>();
+        PipelineObserver delegate = new PipelineObserver() {
+            @Override
+            public void onObservation(PipelineObservation observation) {
+                // not exercised here
+            }
+
+            @Override
+            public void onStart(RunContext context) {
+                started.add(context);
+            }
+        };
+        ThinningObserver thin = new ThinningObserver(delegate, 3);
+        RunContext ctx = new RunContext("crypto", "daily", "replay", new ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationProvenance("leading-warmup", 0L, null, null),
+                14, 0.5, 1.5, 8.0, 99.0, "UPPER", 18, 60.0);
+
+        thin.onStart(ctx);
+
+        assertEquals(1, started.size());
+        assertEquals(ctx, started.get(0));
+    }
+
+    @Test
+    void onComplete_ForwardsToDelegateRegardlessOfThinning() {
+        List<RunSummary> completed = new ArrayList<>();
+        PipelineObserver delegate = new PipelineObserver() {
+            @Override
+            public void onObservation(PipelineObservation observation) {
+                // not exercised here
+            }
+
+            @Override
+            public void onComplete(RunSummary summary) {
+                completed.add(summary);
+            }
+        };
+        ThinningObserver thin = new ThinningObserver(delegate, 3);
+        RunSummary summary = new RunSummary(5, 1, 1, 2, 18);
+
+        thin.onComplete(summary);
+
+        assertEquals(1, completed.size());
+        assertEquals(summary, completed.get(0));
+    }
+
+    @Test
+    void onCalibrationEvent_NeverThinned_EveryEventForwards() {
+        List<CalibrationEvent> received = new ArrayList<>();
+        PipelineObserver delegate = new PipelineObserver() {
+            @Override
+            public void onObservation(PipelineObservation observation) {
+                // not exercised here
+            }
+
+            @Override
+            public void onCalibrationEvent(CalibrationEvent event) {
+                received.add(event);
+            }
+        };
+        ThinningObserver thin = new ThinningObserver(delegate, 3);
+
+        for (int i = 0; i < 4; i++) {
+            thin.onCalibrationEvent(new CalibrationEvent(CalibrationEventKind.RECALIBRATED, i,
+                    0.01, 0.012, 0.004, 0.005, java.time.Instant.parse("2021-05-19T13:00:00Z")));
+        }
+
+        assertEquals(4, received.size(), "lifecycle events are load-bearing — none may be dropped");
+    }
+}

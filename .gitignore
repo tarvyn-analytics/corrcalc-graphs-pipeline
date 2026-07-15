@@ -1,0 +1,16 @@
+target/
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.DS_Store
+.scannerwork/
+# Local raw market-data the opt-in full-data driver reads (never committed; see README).
+crypto-data/
+# Local-only scratch: intermediate progress/knowledge docs, captured run output, the
+# ready-to-run replay-data symlink farm. Never committed (see notes/README.md).
+notes/
+
+# Machine-local Claude Code state (nothing tracked here)
+.claude/

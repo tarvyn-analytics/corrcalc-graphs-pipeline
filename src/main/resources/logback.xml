@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Console logging for the replay CLI. Two system properties (set by the CLI from flags, so main code
+  never compile-depends on logback) drive it:
+    cgp.log.level  = DEBUG|INFO  (from the verbose flag; default INFO)
+    cgp.log.target = System.out|System.err  (default System.out; the CLI sets System.err for the
+                     ndjson style so the machine stream owns stdout and diagnostics go to stderr).
+  %highlight colorizes by level, so the LoggingSink's WARN-level FUSION / DEFUSION fires stand out in
+  red against the quiet INFO calm heartbeat.
+-->
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <target>${cgp.log.target:-System.out}</target>
+        <encoder>
+            <pattern>%highlight(%-5level) %d{HH:mm:ss} %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="${cgp.log.level:-INFO}">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

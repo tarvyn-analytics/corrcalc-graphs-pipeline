@@ -1,0 +1,354 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>io.github.tarvyn-analytics.corrcalc.graphs</groupId>
+    <artifactId>corrcalc-graphs-pipeline</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+    <name>corrcalc-graphs streaming pipeline</name>
+    <description>Streaming structural-change pipeline service. Wires the corrcalc-lib online
+        correlation engine to the graphs-algos-lib temporal change detector over one return
+        stream per timescale, runs a per-asset alert layer, and publishes structural-change
+        signals through a filter + multi-sink delivery seam. Validated by a pinned regression
+        over eight historical crypto events. Consumes correlation matrices; produces signals —
+        not a UI.</description>
+    <url>https://github.com/tarvyn-analytics/corrcalc-graphs-pipeline</url>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <id>tarvyn-analytics</id>
+            <name>Tarvyn Analytics</name>
+            <url>https://github.com/tarvyn-analytics</url>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:https://github.com/tarvyn-analytics/corrcalc-graphs-pipeline.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/tarvyn-analytics/corrcalc-graphs-pipeline.git</developerConnection>
+        <url>https://github.com/tarvyn-analytics/corrcalc-graphs-pipeline</url>
+    </scm>
+
+    <properties>
+        <!-- The pipeline targets release 25 — the family build JDK (corrcalc-lib already
+             requires JDK 25 to build its incubator Vector kernels). A release-25 consumer
+             depends without issue on the upstream libs' published release-21 bytecode; the
+             rolling-correlation path it drives is the scalar streaming engine, so the batch
+             Vector-API kernels (and their incubator-module requirement) never enter this build. -->
+        <maven.compiler.release>25</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <junit.version>5.12.2</junit.version>
+        <corrcalc-lib.version>1.2.2</corrcalc-lib.version>
+        <graphs-algos-lib.version>1.0.0</graphs-algos-lib.version>
+        <!-- Logging: the CLI/replay edge wires slf4j + logback. The asset-agnostic core libs stay
+             dependency-lean; this consumer module is the only place runtime deps are allowed. -->
+        <slf4j.version>2.0.16</slf4j.version>
+        <logback.version>1.5.12</logback.version>
+        <!-- Jackson: the structured NDJSON observation stream is the machine product contract,
+             so it is serialized with the standard JSON library rather than bespoke code. An edge
+             concern — the asset-agnostic libs never see it. -->
+        <jackson.version>2.18.2</jackson.version>
+        <!-- SonarCloud analysis (same organization as the corrcalc/graphs repos). -->
+        <sonar.organization>tarvyn-analytics</sonar.organization>
+        <sonar.host.url>https://sonarcloud.io</sonar.host.url>
+        <sonar.projectKey>tarvyn-analytics_corrcalc-graphs-pipeline</sonar.projectKey>
+        <!-- e1: S5778 expects a single throwing call in a lambda; it does not fit JUnit
+             assertThrows where setup precedes the throwing call. Test sources only.
+             e2/e3/e4: S6218 wants array-holding records to override equals/hashCode/toString.
+             ReturnPanel, DensityChangeSeries and TimescaleScoring carry primitive numeric
+             arrays (double[][] returns fed bar-by-bar to the S1 engine; the derived double[]
+             series) as read-once carriers — they are never compared, hashed or printed (test
+             comparisons use assertArrayEquals on the components), and List<List<Double>> would
+             break the engine's double[]-row hot path. Same precedent as graphs-algos-lib's e4. -->
+        <!-- e5/e6: the CLI is the one place a console + System.exit are sanctioned (same precedent as
+             graphs-algos-lib's cli package); silence S106 (console use) and S1147 (System.exit). -->
+        <sonar.issue.ignore.multicriteria>e1,e2,e3,e4,e5,e6</sonar.issue.ignore.multicriteria>
+        <sonar.issue.ignore.multicriteria.e1.ruleKey>java:S5778</sonar.issue.ignore.multicriteria.e1.ruleKey>
+        <sonar.issue.ignore.multicriteria.e1.resourceKey>**/*Test.java</sonar.issue.ignore.multicriteria.e1.resourceKey>
+        <sonar.issue.ignore.multicriteria.e2.ruleKey>java:S6218</sonar.issue.ignore.multicriteria.e2.ruleKey>
+        <sonar.issue.ignore.multicriteria.e2.resourceKey>**/data/ReturnPanel.java</sonar.issue.ignore.multicriteria.e2.resourceKey>
+        <sonar.issue.ignore.multicriteria.e3.ruleKey>java:S6218</sonar.issue.ignore.multicriteria.e3.ruleKey>
+        <sonar.issue.ignore.multicriteria.e3.resourceKey>**/detect/DensityChangeSeries.java</sonar.issue.ignore.multicriteria.e3.resourceKey>
+        <sonar.issue.ignore.multicriteria.e4.ruleKey>java:S6218</sonar.issue.ignore.multicriteria.e4.ruleKey>
+        <sonar.issue.ignore.multicriteria.e4.resourceKey>**/backtest/TimescaleScoring.java</sonar.issue.ignore.multicriteria.e4.resourceKey>
+        <sonar.issue.ignore.multicriteria.e5.ruleKey>java:S106</sonar.issue.ignore.multicriteria.e5.ruleKey>
+        <sonar.issue.ignore.multicriteria.e5.resourceKey>**/cli/*.java</sonar.issue.ignore.multicriteria.e5.resourceKey>
+        <sonar.issue.ignore.multicriteria.e6.ruleKey>java:S1147</sonar.issue.ignore.multicriteria.e6.ruleKey>
+        <sonar.issue.ignore.multicriteria.e6.resourceKey>**/cli/*.java</sonar.issue.ignore.multicriteria.e6.resourceKey>
+        <!-- Central Portal publishing behaviour (overridable per build) -->
+        <central.autoPublish>true</central.autoPublish>
+        <central.waitUntil>published</central.waitUntil>
+    </properties>
+
+    <!-- corrcalc-lib-core and graphs-algos-lib resolve from Maven Central (public, no token). -->
+    <dependencies>
+        <!-- The online rolling-correlation engine (stream package). -->
+        <dependency>
+            <groupId>io.github.tarvyn-analytics.corrcalc</groupId>
+            <artifactId>corrcalc-lib-core</artifactId>
+            <version>${corrcalc-lib.version}</version>
+        </dependency>
+        <!-- The temporal change-metric + CUSUM change detector. -->
+        <dependency>
+            <groupId>io.github.tarvyn-analytics.graphs</groupId>
+            <artifactId>graphs-algos-lib</artifactId>
+            <version>${graphs-algos-lib.version}</version>
+        </dependency>
+
+        <!-- Logging facade (compile) + logback backend (runtime, swappable). The replay engine and
+             the LoggingSink program only against the slf4j API; logback is the shipped binding. -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>${logback.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- JSON: serializes the NDJSON observation stream (NdjsonObserver). Standard library on the
+             consumer edge — keeps the wire format maintained rather than hand-rolled. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+
+        <!-- java.time (Instant) support for the persisted calibration artifact (CalibrationStore). -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+
+        <!-- Testing -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-params</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.14.0</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.3</version>
+            </plugin>
+            <plugin>
+                <groupId>org.sonarsource.scanner.maven</groupId>
+                <artifactId>sonar-maven-plugin</artifactId>
+                <version>5.1.0.4751</version>
+            </plugin>
+            <!-- JaCoCo: 80% line / 70% branch gates, enforced by verify. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.13</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>check-coverage</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.80</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.70</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- Attaches source and javadoc jars for publishing; -Ppublish is what CI runs so a PR
+             cannot merge with javadoc errors that would break the publish-on-push job. -->
+        <profile>
+            <id>publish</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <version>3.3.1</version>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <goals>
+                                    <goal>jar-no-fork</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <version>3.11.2</version>
+                        <executions>
+                            <execution>
+                                <id>attach-javadocs</id>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- `-Pcli` builds a runnable uber-jar (classifier `cli`) with the replay CLI as Main-Class,
+             bundling the upstream libs + logback so `java -jar …-cli.jar replay …` works standalone.
+             It is opt-in: the normal/publish build keeps the thin library jar, so neither the published
+             artifact nor the CI verify/publish flow is affected. -->
+        <profile>
+            <id>cli</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-shade-plugin</artifactId>
+                        <version>3.6.0</version>
+                        <executions>
+                            <execution>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>shade</goal>
+                                </goals>
+                                <configuration>
+                                    <shadedArtifactAttached>true</shadedArtifactAttached>
+                                    <shadedClassifierName>cli</shadedClassifierName>
+                                    <createDependencyReducedPom>false</createDependencyReducedPom>
+                                    <transformers>
+                                        <transformer
+                                                implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                            <mainClass>ch.tarvynanalytics.corrcalc.graphs.pipeline.cli.PipelineCli</mainClass>
+                                        </transformer>
+                                        <!-- merge META-INF/services so logback's SLF4JServiceProvider is found. -->
+                                        <transformer
+                                                implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                                    </transformers>
+                                    <filters>
+                                        <filter>
+                                            <artifact>*:*</artifact>
+                                            <excludes>
+                                                <exclude>module-info.class</exclude>
+                                                <exclude>META-INF/*.SF</exclude>
+                                                <exclude>META-INF/*.DSA</exclude>
+                                                <exclude>META-INF/*.RSA</exclude>
+                                            </excludes>
+                                        </filter>
+                                    </filters>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- Release publishing to Maven Central: signs every deployed artifact with the
+             project GPG key and uploads through the Central Portal. Source/javadoc jars come
+             from the publish profile, so a release build activates both: -Ppublish,release.
+             Kept separate from publish so PR validation (-Ppublish) never signs. -->
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>3.2.7</version>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                                <configuration>
+                                    <gpgArguments>
+                                        <arg>--pinentry-mode</arg>
+                                        <arg>loopback</arg>
+                                    </gpgArguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <version>0.11.0</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <publishingServerId>central</publishingServerId>
+                            <autoPublish>${central.autoPublish}</autoPublish>
+                            <waitUntil>${central.waitUntil}</waitUntil>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
+</project>
