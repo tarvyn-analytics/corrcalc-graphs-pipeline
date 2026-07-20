@@ -34,8 +34,12 @@ import ch.tarvynanalytics.corrcalc.graphs.pipeline.SignalPublisher;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.SignalSink;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.StructuralSignal;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.StructuralSignals;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.SymbolVolatilityObservation;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.SymbolVolatilityBaseline;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.RegimeSeries;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.RegimeTimescaleConfig;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.SymbolVolatilityConfig;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.SymbolVolatilitySeries;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.TimescaleConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -100,6 +104,25 @@ public final class PipelineEngine {
      */
     public void onReturns(Instant asOf, double[] returns) {
         s1.onBar(asOf, returns);
+    }
+
+    /**
+     * Feeds one aligned close cross-section to the optional per-symbol volatility channel. No-op
+     * unless {@link Builder#symbolVolatility} was configured. Call once per snapshot, <em>before</em>
+     * the same bar's {@link #onReturns}, on the single ingest thread ({@link PipelineDriver#run}
+     * does exactly this). Once the channel is warm, the observer's
+     * {@code onSymbolVolatility} is invoked from inside this call — therefore always before the
+     * same bar's {@code onObservation}.
+     *
+     * <p>Session boundaries never reset this channel: its windows and predecessor state slide
+     * straight through day boundaries; its only discontinuity treatment is the configured gap
+     * mask.</p>
+     *
+     * @param asOf   the cross-section's instant (UTC)
+     * @param closes one close per universe symbol, in the engine's column order
+     */
+    public void onCloses(Instant asOf, double[] closes) {
+        listener.onCloses(asOf, closes);
     }
 
     /**
@@ -189,6 +212,8 @@ public final class PipelineEngine {
         private CalibrationSource calibrationSource;
         private RegimeTimescaleConfig regime;
         private boolean observeDensity;
+        private SymbolVolatilityConfig volatilityConfig;
+        private SymbolVolatilityBaseline volatilityBaseline;
 
         private Builder(String[] symbols, TimescaleConfig cfg) {
             if (symbols == null || symbols.length == 0) {
@@ -313,10 +338,40 @@ public final class PipelineEngine {
             return this;
         }
 
+        /**
+         * Enables the optional <strong>per-symbol realized-volatility diagnostic channel</strong>:
+         * the engine additionally accepts aligned close cross-sections via
+         * {@link PipelineEngine#onCloses} and, once the channel is warm, forwards one
+         * {@link SymbolVolatilityObservation} per bar to
+         * {@link PipelineObserver#onSymbolVolatility} — alongside (and always before) the same
+         * bar's matrix-level observation. Leaving this unset keeps the engine byte-identical to a
+         * build without the channel; {@code onCloses} is then a no-op.
+         *
+         * @param config   the channel tuning (windows + gap mask)
+         * @param baseline the frozen per-column baseline; its symbols must equal the engine
+         *                 symbols in order (validated at {@link #build()})
+         * @return this builder
+         * @throws IllegalArgumentException if either argument is null
+         */
+        public Builder symbolVolatility(SymbolVolatilityConfig config, SymbolVolatilityBaseline baseline) {
+            if (config == null || baseline == null) {
+                throw new IllegalArgumentException(
+                        "symbolVolatility requires both a config and a baseline");
+            }
+            this.volatilityConfig = config;
+            this.volatilityBaseline = baseline;
+            return this;
+        }
+
         /** Builds the engine, validating the required knobs. */
         public PipelineEngine build() {
             if (calmBars < 2) {
                 throw new IllegalArgumentException("calmBars must be >= 2 [" + calmBars + "]");
+            }
+            if (volatilityBaseline != null && !volatilityBaseline.symbols().equals(List.of(symbols))) {
+                throw new IllegalArgumentException("symbol-volatility baseline symbols ["
+                        + volatilityBaseline.symbols() + "] must equal the engine symbols ["
+                        + List.of(symbols) + "] in order");
             }
             if (publisher == null) {
                 throw new IllegalArgumentException("a fire sink/publisher is required (call sink(..) or publisher(..))");
@@ -352,6 +407,9 @@ public final class PipelineEngine {
         private final double regimeHi;    // the Schmitt high mark — the pipeline owns it, for confidence
         private final double regimeLo;    // the Schmitt low mark
         private final boolean observeDensity;  // --observe density: forward each daily level to the observer
+
+        // The optional per-symbol volatility channel: null unless Builder.symbolVolatility was set.
+        private final SymbolVolatilitySeries volatilitySeries;
 
         private double[][] prev;
         private double[][] detectPrev;
@@ -397,11 +455,30 @@ public final class PipelineEngine {
                 this.regimeLo = Double.NaN;
             }
             this.observeDensity = b.observeDensity;
+            this.volatilitySeries = b.volatilityConfig == null
+                    ? null
+                    : new SymbolVolatilitySeries(b.volatilityConfig, b.volatilityBaseline);
         }
 
         /** Whether this run drives the regime-backbone fire (vs the default adaptive-CUSUM fire). */
         private boolean regimeMode() {
             return regimeDetector != null;
+        }
+
+        /**
+         * Advances the per-symbol volatility channel by one close cross-section and, once the
+         * channel emits, forwards the bar to the observer. A strict no-op when the channel is not
+         * configured.
+         */
+        void onCloses(Instant asOf, double[] closes) {
+            if (volatilitySeries == null) {
+                return;   // channel not configured: the engine stays byte-identical
+            }
+            double[] zScores = volatilitySeries.onCloses(asOf, closes);
+            if (zScores != null) {
+                observer.onSymbolVolatility(
+                        new SymbolVolatilityObservation(asOf, market, timescale, universe, zScores));
+            }
         }
 
         @Override
