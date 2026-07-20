@@ -88,6 +88,19 @@ public interface PipelineObserver {
         // default: observers that do not record the density series ignore it
     }
 
+    /**
+     * Receives one bar of the optional per-symbol realized-volatility diagnostic channel
+     * ({@link SymbolVolatilityObservation}: the smoothed robust volatility z per universe column,
+     * {@code NaN} = unscored). Emitted only when the engine was built with
+     * {@code Builder.symbolVolatility(...)}, and always <em>before</em> the same bar's
+     * {@link #onObservation} — never gated by an {@link ObservationPolicy}. The default is a no-op.
+     *
+     * @param observation the per-symbol volatility bar
+     */
+    default void onSymbolVolatility(SymbolVolatilityObservation observation) {
+        // default: observers that do not track the per-symbol volatility channel ignore it
+    }
+
     /** A sink that drops every observation — the default when a consumer wants only the fire-stream. */
     static PipelineObserver noOp() {
         return observation -> {
