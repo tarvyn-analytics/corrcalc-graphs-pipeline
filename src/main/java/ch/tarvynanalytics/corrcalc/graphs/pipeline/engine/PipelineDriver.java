@@ -12,7 +12,9 @@ import java.util.Optional;
  * from a {@link MarketDataSource}, turns each into a return bar with a {@link ReturnBuilder}, and feeds
  * the bars into a {@link PipelineEngine} — pacing the detection phase via a {@link Pace} hook. This is
  * the one place the three pieces meet; a replay and a live run differ only in the source they pass and
- * the {@code Pace} they choose.
+ * the {@code Pace} they choose. Every snapshot is also forwarded to {@link PipelineEngine#onCloses}
+ * immediately before it enters the {@code ReturnBuilder}, so the optional per-symbol volatility
+ * channel always emits before the same bar's matrix-level observation (a no-op when unconfigured).
  *
  * <p>Pacing matches the engine's calibration boundary: only post-calibration bars are paced (the warm-up
  * and calm prefix run as fast as the source yields them), so a replay's first impression starts
@@ -43,7 +45,12 @@ public final class PipelineDriver {
         try {
             Optional<MarketSnapshot> next;
             while ((next = source.poll()).isPresent()) {
-                Optional<ReturnBuilder.ReturnBar> bar = builder.accept(next.get());
+                MarketSnapshot snapshot = next.get();
+                // The optional per-symbol volatility channel sees every snapshot immediately BEFORE
+                // the same bar enters the ReturnBuilder — so a warm channel's onSymbolVolatility
+                // always precedes the same bar's onObservation. A no-op when unconfigured.
+                engine.onCloses(snapshot.timestamp(), snapshot.closes());
+                Optional<ReturnBuilder.ReturnBar> bar = builder.accept(snapshot);
                 if (bar.isPresent()) {
                     Instant ts = bar.get().asOf();
                     if (engine.isCalibrated()) {
