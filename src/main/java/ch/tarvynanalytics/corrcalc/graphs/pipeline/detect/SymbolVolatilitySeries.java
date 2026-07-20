@@ -21,16 +21,21 @@ import java.util.Arrays;
  *       {@link SymbolVolatilityConfig#gapMask()} after its predecessor zeroes the <em>entire</em>
  *       return row (every column). The UTC-midnight return is kept: this channel deliberately
  *       treats the tape as continuous and applies no session handling at all;</li>
- *   <li><strong>rolling RMS volatility per column</strong> — an incremental sum of squares over the
- *       last {@code volWindow} returns, {@code vol = sqrt(sum / volWindow)}; no partial-window
- *       volatility — a column stays unscored until {@code volWindow} returns have accumulated;</li>
+ *   <li><strong>rolling RMS volatility per column</strong> — the sum of squares over the last
+ *       {@code volWindow} returns, recomputed freshly at each scored bar in temporal order (oldest
+ *       first), so the volatility is a pure function of the trailing window — a replay of the last
+ *       {@code volWindow} bars reproduces it bit-for-bit; {@code vol = sqrt(sum / volWindow)}; no
+ *       partial-window volatility — a column stays unscored until {@code volWindow} returns have
+ *       accumulated;</li>
  *   <li><strong>robust z per column</strong> — {@code z = (vol − mu[k]) / sigma[k]} against the
  *       frozen {@link SymbolVolatilityBaseline}; a {@code NaN} or non-positive {@code sigma[k]}
  *       leaves the column permanently unscored ({@link Double#NaN});</li>
  *   <li><strong>trailing-median smooth</strong> over the last {@code smoothWindow} z-values,
  *       NaN-aware (the median of the non-NaN values inside the positional window, an all-NaN
- *       window staying {@link Double#NaN}); nothing is emitted for a bar before {@code smoothWindow}
- *       positional z-rows exist.</li>
+ *       window staying {@link Double#NaN}). Positional z-rows are counted from the first full
+ *       volatility window — nothing is emitted for a bar before {@code smoothWindow} z-rows exist,
+ *       i.e. before {@code volWindow + smoothWindow − 1} returns have accumulated — so warm-up
+ *       never leaks an under-smoothed median.</li>
  * </ol>
  *
  * <p><strong>Session boundaries never reset this stage</strong> — its windows and predecessor state
@@ -49,7 +54,6 @@ public final class SymbolVolatilitySeries {
     private final int columns;
 
     private final double[][] squares;    // per column: circular buffer of the last volWindow squared returns
-    private final double[] sumSquares;   // per column: incremental sum over the circular buffer
     private final double[][] zWindow;    // per column: circular buffer of the last smoothWindow z-values
     private double[] prevCloses;         // per-run predecessor cross-section (null until seeded)
     private Instant prevAsOf;
@@ -71,7 +75,6 @@ public final class SymbolVolatilitySeries {
         this.sigma = baseline.sigma();
         this.columns = baseline.symbols().size();
         this.squares = new double[columns][volWindow];
-        this.sumSquares = new double[columns];
         this.zWindow = new double[columns][smoothWindow];
     }
 
@@ -105,17 +108,24 @@ public final class SymbolVolatilitySeries {
         int zSlot = (int) (returnRows % smoothWindow);
         returnRows++;
         boolean volWarm = returnRows >= volWindow;
-        boolean smootherWarm = returnRows >= smoothWindow;
+        // Positional z-rows exist only from the first full vol window, so the trailing smoother
+        // window is complete once smoothWindow z-rows have accumulated on top of the vol warm-up.
+        boolean smootherWarm = returnRows >= (long) volWindow + smoothWindow - 1;
         double[] out = smootherWarm ? new double[columns] : null;
         boolean anyScored = false;
         for (int c = 0; c < columns; c++) {
             double r = masked ? 0.0 : ReturnPanels.logReturn(prevCloses[c], closes[c]);
-            double square = r * r;
-            sumSquares[c] += square - squares[c][slot];
-            squares[c][slot] = square;
+            squares[c][slot] = r * r;
             double z = Double.NaN;
             if (volWarm && sigma[c] > 0.0) {   // a NaN or non-positive sigma leaves the column unscored
-                double vol = Math.sqrt(sumSquares[c] / volWindow);
+                // Fresh window sum in temporal order (oldest slot first): the volatility is a pure
+                // function of the trailing volWindow returns — no rounding path from older history —
+                // so a replay of the trailing bars reproduces it bit-for-bit.
+                double sum = 0.0;
+                for (int k = 1; k <= volWindow; k++) {
+                    sum += squares[c][(slot + k) % volWindow];
+                }
+                double vol = Math.sqrt(sum / volWindow);
                 z = (vol - mu[c]) / sigma[c];
             }
             zWindow[c][zSlot] = z;

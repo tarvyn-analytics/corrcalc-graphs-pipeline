@@ -15,8 +15,9 @@ import java.time.Duration;
  *                     a column stays unscored until the window has fully filled — no partial-window
  *                     volatility is ever computed
  * @param smoothWindow the trailing-median smoothing window over the per-symbol z series, in bars
- *                     ({@code >= 1}); no value is emitted for a bar before the smoother is
- *                     positionally warm
+ *                     ({@code >= 1}); z-rows exist only from the first full volatility window, so
+ *                     no value is emitted before {@code volWindow + smoothWindow − 1} returns have
+ *                     accumulated
  * @param gapMask      the largest inter-snapshot spacing treated as contiguous; a snapshot arriving
  *                     more than this after its predecessor zeroes the entire return row (every
  *                     column), so the hole never inflates the volatility read

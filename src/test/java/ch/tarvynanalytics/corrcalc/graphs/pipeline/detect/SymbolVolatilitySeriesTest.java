@@ -22,11 +22,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Numerics of the per-symbol volatility prep stage, proven against an <strong>independent naive
  * oracle</strong>: straightforward loops over explicit arrays recompute returns (with the gap
  * mask), fresh window sums for the RMS volatility, the robust z, and the trailing NaN-aware median
- * — never the stage's own incremental state. The seeded 4-column tape exercises every specified
+ * — never the stage's own rolling state. The seeded 4-column tape exercises every specified
  * discontinuity: a &gt;gapMask hole (5 minutes at snapshot 8), a UTC-midnight boundary (snapshot 5,
  * whose return must be KEPT — the channel has no session handling), a {@code sigma == 0} column
- * (B), a {@code sigma == NaN} column (D), and the stacked warm-up (vol window over 4 returns,
- * smoother over 3 positional z-rows).
+ * (B), a {@code sigma == NaN} column (D), and the stacked warm-up (vol window over 4 returns, then
+ * 3 positional z-rows for the smoother — z-rows exist only from the first full vol window, so the
+ * first emittable bar is return row {@code volWindow + smoothWindow − 1 = 6}).
  */
 class SymbolVolatilitySeriesTest {
 
@@ -91,18 +92,19 @@ class SymbolVolatilitySeriesTest {
 
     /**
      * Pinned values from an independent reference recomputation of the oracle above (fresh window
-     * sums, no shared code with the stage). Derivations: at snapshot 4 (23:59) the vol window
-     * {r1..r4} first fills, so column A's raw z is {@code (sqrt(Σr²/4) − 0.008) / 0.004} and the
-     * smoother window {r2, r3, r4} holds {NaN, NaN, z4} — the NaN-aware median is z4 itself. The
-     * snapshot-5 value includes the 23:59→00:00 return (midnight KEPT); the snapshot-8 value
+     * sums, no shared code with the stage). Derivations: the vol window {r1..r4} first fills at
+     * return row 4, giving the first z-row; the smoother needs 3 z-rows, so the first emittable
+     * bar is return row 6, where the smoother window {z4, z5, z6} is fully scored and column A's
+     * value is the median of the three raw z {@code (sqrt(Σr²/4) − 0.008) / 0.004}. The window
+     * behind snapshot 6 includes the 23:59→00:00 return (midnight KEPT); the snapshot-8 value
      * includes the zeroed hole row.
      */
     @Test
     void onCloses_PinnedValues_MatchIndependentReference() {
         Map<Integer, double[]> emitted = sweep(new SymbolVolatilitySeries(CONFIG, baseline(SIGMA)));
 
-        assertEquals(-0.9233304892995917, emitted.get(4)[0], 1e-12);   // first emission: z4 itself
-        assertEquals(-0.9028766410445279, emitted.get(5)[0], 1e-12);   // midnight return kept
+        assertEquals(-0.8824227927894641, emitted.get(6)[0], 1e-12);   // first emission: median{z4,z5,z6}
+        assertEquals(-1.1550023911095837, emitted.get(6)[2], 1e-12);   // midnight return in-window
         assertEquals(-0.422301108983017, emitted.get(8)[0], 1e-12);    // hole row zeroed
         assertEquals(-0.3234261295002221, emitted.get(14)[0], 1e-12);  // fully warm, odd median
         assertEquals(-0.8272569375673241, emitted.get(14)[2], 1e-12);
@@ -112,12 +114,13 @@ class SymbolVolatilitySeriesTest {
     void onCloses_WarmupSnapshots_EmitNothingUntilFirstScoredColumn() {
         Map<Integer, double[]> emitted = sweep(new SymbolVolatilitySeries(CONFIG, baseline(SIGMA)));
 
-        // Return row r first exists at snapshot r; the vol window fills at r4, the smoother is
-        // positionally warm from r3 — so the first emission is exactly snapshot 4, then every bar.
-        for (int i = 0; i <= 3; i++) {
+        // Return row r first exists at snapshot r; the vol window fills at r4 (the first z-row),
+        // and the smoother needs 3 z-rows — so the first emission is exactly snapshot 6, then
+        // every bar. Nothing may leak earlier: an under-smoothed median is not an emission.
+        for (int i = 0; i <= 5; i++) {
             assertNull(emitted.get(i), "snapshot [" + i + "] is pre-warm-up");
         }
-        for (int i = 4; i < CLOSES.length; i++) {
+        for (int i = 6; i < CLOSES.length; i++) {
             assertNotNull(emitted.get(i), "snapshot [" + i + "] is post-warm-up");
         }
     }
@@ -184,6 +187,30 @@ class SymbolVolatilitySeriesTest {
         double r1 = Math.log(101.0 / 100.0);
         double r2 = Math.log(102.0 / 101.0);
         assertEquals(Math.sqrt((r1 * r1 + r2 * r2) / 2.0), out[0], 1e-12);
+    }
+
+    @Test
+    void onCloses_EvenSmoothWindow_AveragesTheTwoMiddleZ() {
+        SymbolVolatilityConfig cfg = new SymbolVolatilityConfig(2, 2, GAP_MASK);
+        SymbolVolatilityBaseline base = new SymbolVolatilityBaseline("crypto", "intraday", 0L,
+                Instant.parse("2024-01-01T00:00:00Z"), Instant.parse("2024-02-01T00:00:00Z"),
+                List.of("A"), new double[]{0.0}, new double[]{1.0});
+        SymbolVolatilitySeries stage = new SymbolVolatilitySeries(cfg, base);
+        Instant t0 = Instant.parse("2024-03-01T00:00:00Z");
+
+        assertNull(stage.onCloses(t0, new double[]{100.0}));                            // seed
+        assertNull(stage.onCloses(t0.plusSeconds(60), new double[]{101.0}));            // r1: vol not warm
+        assertNull(stage.onCloses(t0.plusSeconds(120), new double[]{102.0}));           // r2: first z-row only
+        double[] out = stage.onCloses(t0.plusSeconds(180), new double[]{103.0});        // r3: 2 z-rows
+
+        assertNotNull(out);
+        // An even window averages the two mids: (z2 + z3) / 2 with mu=0, sigma=1.
+        double r1 = Math.log(101.0 / 100.0);
+        double r2 = Math.log(102.0 / 101.0);
+        double r3 = Math.log(103.0 / 102.0);
+        double z2 = Math.sqrt((r1 * r1 + r2 * r2) / 2.0);
+        double z3 = Math.sqrt((r2 * r2 + r3 * r3) / 2.0);
+        assertEquals((z2 + z3) / 2.0, out[0], 1e-12);
     }
 
     @Test
@@ -269,7 +296,9 @@ class SymbolVolatilitySeriesTest {
             }
         }
         Map<Integer, double[]> out = new HashMap<>();
-        for (int r = SMOOTH_WINDOW; r <= rows; r++) {
+        // z-rows exist only from return row VOL_WINDOW, and the trailing smoother needs
+        // SMOOTH_WINDOW of them — the first emittable row is VOL_WINDOW + SMOOTH_WINDOW − 1.
+        for (int r = VOL_WINDOW + SMOOTH_WINDOW - 1; r <= rows; r++) {
             double[] smoothed = new double[cols];
             boolean any = false;
             for (int c = 0; c < cols; c++) {

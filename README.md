@@ -196,7 +196,12 @@ consumer's choice*:
   `ObservationPolicy` (`all` / `firesOnly` / `minWeightedChange(τ)` /
   `minActivation(frac)`, freely composed) that decides which observations
   reach their observer. `--observe` selects this policy and
-  `--heartbeat-every` thins it.
+  `--heartbeat-every` thins it. An optional **per-symbol realized-volatility
+  diagnostic channel** (`Builder.symbolVolatility(config, baseline)` +
+  `PipelineEngine.onCloses`) additionally forwards one smoothed per-column
+  volatility z-score bar (`SymbolVolatilityObservation`, `NaN` = unscored) to
+  `PipelineObserver.onSymbolVolatility`, always before the same bar's
+  observation; unconfigured, the engine is byte-identical.
 
 So "push every tick, only fires, or just the big moves" is a one-line policy
 on whoever composes the pipeline — not a property baked into the engine.

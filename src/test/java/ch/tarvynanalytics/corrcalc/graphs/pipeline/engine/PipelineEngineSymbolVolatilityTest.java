@@ -1,8 +1,10 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline.engine;
 
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.CalibrationEvent;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.CollectingSink;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObservation;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PipelineObserver;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.RegimeEvent;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.SymbolVolatilityObservation;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.SymbolVolatilityBaseline;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.ReturnBuilder;
@@ -68,11 +70,11 @@ class PipelineEngineSymbolVolatilityTest {
 
     @Test
     void onCloses_Unconfigured_IsStrictNoOpAndKeepsEngineByteIdentical() {
-        List<PipelineObservation> withCloses = new ArrayList<>();
-        List<PipelineObservation> withoutCloses = new ArrayList<>();
+        List<Object> withCloses = new ArrayList<>();
+        List<Object> withoutCloses = new ArrayList<>();
         List<SymbolVolatilityObservation> vol = new ArrayList<>();
-        PipelineEngine fed = engine(withCloses, vol, null);
-        PipelineEngine twin = engine(withoutCloses, vol, null);
+        PipelineEngine fed = allStreamEngine(withCloses, vol);
+        PipelineEngine twin = allStreamEngine(withoutCloses, vol);
 
         Instant t0 = Instant.parse("2024-01-01T00:00:00Z");
         Random rng = new Random(7L);
@@ -93,7 +95,8 @@ class PipelineEngineSymbolVolatilityTest {
 
         assertTrue(vol.isEmpty(), "an unconfigured engine never emits the volatility channel");
         assertFalse(withCloses.isEmpty(), "the run scored transitions");
-        assertEquals(withoutCloses, withCloses, "onCloses must leave the engine byte-identical");
+        assertEquals(withoutCloses, withCloses,
+                "onCloses must leave every observer stream byte-identical");
         assertEquals(twin.summary(), fed.summary());
     }
 
@@ -178,6 +181,43 @@ class PipelineEngineSymbolVolatilityTest {
     }
 
     // ---------------------------------------------------------------- helpers
+
+    /**
+     * An unconfigured engine recording <em>every</em> observer stream (observations, calibration
+     * events, regime events, density levels) into one ordered list — the byte-identity twin proof
+     * compares whole streams, not just observations.
+     */
+    private static PipelineEngine allStreamEngine(List<Object> stream,
+                                                  List<SymbolVolatilityObservation> vol) {
+        PipelineObserver observer = new PipelineObserver() {
+            @Override
+            public void onObservation(PipelineObservation observation) {
+                stream.add(observation);
+            }
+
+            @Override
+            public void onCalibrationEvent(CalibrationEvent event) {
+                stream.add(event);
+            }
+
+            @Override
+            public void onRegimeEvent(RegimeEvent event) {
+                stream.add(event);
+            }
+
+            @Override
+            public void onDensityLevel(Instant asOf, double smoothedLevel) {
+                stream.add(List.of(asOf, smoothedLevel));
+            }
+
+            @Override
+            public void onSymbolVolatility(SymbolVolatilityObservation observation) {
+                vol.add(observation);
+            }
+        };
+        return PipelineEngine.builder(syms(4), CFG).calmBars(20).market("crypto").timescale("daily")
+                .sink(new CollectingSink()).observer(observer).build();
+    }
 
     /** An engine collecting both observer streams; the channel is present iff {@code base} is. */
     private static PipelineEngine engine(List<PipelineObservation> observations,
