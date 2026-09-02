@@ -13,6 +13,7 @@ import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationArtifact;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationProvenance;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSource;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSources;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.RearmConfig;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.TimescaleConfig;
 import ch.tarvynanalytics.graphs.algos.Calibration;
 import ch.tarvynanalytics.graphs.algos.DetectorConfig;
@@ -332,7 +333,7 @@ class PipelineEngineTest {
         };
         DetectorConfig detector = rearmCfg(true).detector();
         TimescaleConfig backstopCfg = new TimescaleConfig(WINDOW, detector,
-                new ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.RearmConfig(true, 2, 0.25, 5, 30));
+                new RearmConfig(true, 2, 0.25, 5, 30));
         CollectingSink sink = new CollectingSink();
         PipelineEngine engine = PipelineEngine.builder(syms(4), backstopCfg).calmBars(24)
                 .market("crypto").timescale("intraday").observer(PipelineObserver.noOp())
@@ -363,7 +364,7 @@ class PipelineEngineTest {
                 new AdaptiveCalibrationConfig(6, 1e6, 0, 1e6, 1e6, 1e-6, 1e6, 1000, 64);
         DetectorConfig detector = rearmCfg(true).detector();
         TimescaleConfig backstopCfg = new TimescaleConfig(WINDOW, detector,
-                new ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.RearmConfig(true, 2, 0.25, 5, 30));
+                new RearmConfig(true, 2, 0.25, 5, 30));
         Returns tape = cycles(36, 60, 20, 0, 0, 21L);   // one fusion, 60 elevated bars: never recovers
 
         RecordedRun real = driveWithSource(backstopCfg, tape,
@@ -371,8 +372,12 @@ class PipelineEngineTest {
         RecordedRun preW1 = driveWithSource(backstopCfg, tape,
                 new PreW1CachingCalibrationSource(CalibrationSources.adaptive(adaptiveCfg, detector, null)));
 
-        assertTrue(real.events().size() >= 2,
-                "the backstop expiry must reach the adaptive source: " + real.events());
+        // Pin the actual traversal, not just a count: cold-start PROMOTED_TO_LIVE, then the backstop
+        // expiry's REGIME_TIMEOUT -> DEMOTED_TO_CALIBRATING -> re-promotion. A fixture change that
+        // collapsed this to the cold-start hop alone must fail here, not just stay green on a count.
+        assertEquals(List.of(CalibrationEventKind.PROMOTED_TO_LIVE, CalibrationEventKind.REGIME_TIMEOUT,
+                CalibrationEventKind.DEMOTED_TO_CALIBRATING, CalibrationEventKind.PROMOTED_TO_LIVE),
+                real.events().stream().map(CalibrationEvent::kind).toList());
         assertEquals(real.events(), preW1.events());
         assertEquals(real.observations(), preW1.observations());
     }
@@ -499,7 +504,7 @@ class PipelineEngineTest {
                 new ch.tarvynanalytics.graphs.algos.DefusionConfig(0.75, 0.75, 4, true));
         return rearmEnabled
                 ? new TimescaleConfig(WINDOW, withDefusion,
-                        new ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.RearmConfig(true, 2, 0.25, 5, 0))
+                        new RearmConfig(true, 2, 0.25, 5, 0))
                 : new TimescaleConfig(WINDOW, withDefusion);
     }
 

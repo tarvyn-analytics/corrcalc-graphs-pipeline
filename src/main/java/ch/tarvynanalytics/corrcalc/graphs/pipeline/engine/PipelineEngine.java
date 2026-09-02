@@ -367,9 +367,18 @@ public final class PipelineEngine {
 
         /**
          * The pair universe the density metric normalizes over (design/23 §3.5): {@code allPairs /
-         * activePairs(asOf)} is applied at the regime read, the observation's density and the
-         * calibration source's density argument. Default {@link PairUniverse#ALL}, under which the
-         * engine is byte-identical to a build without this seam.
+         * activePairs(asOf)} is applied at the regime read, the observation's density, the
+         * calibration source's density argument, and the re-arm cadence's relaxation gate compare
+         * (the cadence's {@code levelGate} is learned from the same normalized density, so its
+         * compare must use it too — a raw compare would relax/re-arm early). Default
+         * {@link PairUniverse#ALL}, under which the engine is byte-identical to a build without
+         * this seam.
+         *
+         * <p>Two seams stay raw-world regardless: the non-regime fire-stream's
+         * {@link StructuralSignal#levelDensity()} ({@link StructuralSignals#fromChangeSignal} carries
+         * the detector's raw output for the firing transition, by design), and the S3 detector's own
+         * internal level-gate compare inside {@code graphs-algos-lib}'s {@code CusumChangeDetector} —
+         * that library has no {@link PairUniverse} concept, a lag design/23 §3.8d already accepts.</p>
          *
          * @param universe the seam, or {@code null} to keep the {@link PairUniverse#ALL} default
          * @return this builder
@@ -624,12 +633,17 @@ public final class PipelineEngine {
             // drainCalibrationEvents(true) below already re-reads it before this method returns — so
             // this read always agrees with what the prior bar's drain already cached (VD-5).
             calibrationResult = calibrationSource.calibration();
-            RearmCadence.Rearm rearmed = rearm.observe(sig);
+            // Hoisted above rearm.observe (design/23 3.5's 4th point): the relaxation rule's gate
+            // compare is density < levelGate, and levelGate is learned in normalized units the
+            // moment a PairUniverse is active (the calibration source observes normalizedDensity —
+            // calibrate()/observeDetection above) -- so the cadence must be handed the same
+            // normalized density, never the signal's raw metrics().densityLevel().
+            ChangeMetrics metrics = withNormalizedDensity(asOf, sig.metrics());
+            RearmCadence.Rearm rearmed = rearm.observe(sig, metrics.densityLevel());
             detectionPoints++;
             List<PairContribution> contributors = contributors(detectPrev, current);
             detectPrev = current;
             SignalKind kind = sig.fired() ? toSignalKind(sig.fireDirection()) : null;
-            ChangeMetrics metrics = withNormalizedDensity(asOf, sig.metrics());
             PipelineObservation obs = new PipelineObservation(asOf, market, timescale, metrics,
                     sig.sPlus(), sig.sMinus(), sig.recoveryGauge(), sig.fired(), kind, cfg.detector().h(),
                     calibrationResult.mu(), calibrationResult.sigma(), calibrationResult.level(), contributors);
