@@ -98,10 +98,14 @@ final class RearmCadence {
      * Advances the cadence with one scored signal (never {@code null}); a re-arm decided here takes
      * effect on the next {@link #windowId()}.
      *
-     * @param signal the transition the detector just scored under the current window id
+     * @param signal  the transition the detector just scored under the current window id
+     * @param density this transition's density in the same units {@link #levelGate} was learned in
+     *                (design/23 §3.5's 4th point — the caller normalizes, never
+     *                {@code signal.metrics().densityLevel()} directly: a raw compare against a
+     *                normalized {@code levelGate} would relax/re-arm early)
      * @return what kind of re-arm (if any) this bar decided
      */
-    Rearm observe(ChangeSignal signal) {
+    Rearm observe(ChangeSignal signal, double density) {
         if (!config.enabled()) {
             return Rearm.NONE;
         }
@@ -125,7 +129,7 @@ final class RearmCadence {
                 return Rearm.RESOLVED;
             }
         } else if (config.relaxSustainBars() > 0) {
-            relaxSustained = relaxedGateClosed(signal) ? relaxSustained + 1 : 0;
+            relaxSustained = relaxedGateClosed(signal, density) ? relaxSustained + 1 : 0;
             if (relaxSustained >= config.relaxSustainBars()) {
                 rearm();
                 return Rearm.RESOLVED;
@@ -139,9 +143,8 @@ final class RearmCadence {
     }
 
     /** The per-bar relaxation condition: the firing arm has drained AND density left the fired band. */
-    private boolean relaxedGateClosed(ChangeSignal signal) {
+    private boolean relaxedGateClosed(ChangeSignal signal, double density) {
         double firingArm = fireArm == FireArm.UPPER ? signal.sPlus() : signal.sMinus();
-        double density = signal.metrics().densityLevel();
         return firingArm < config.relaxFrac() * h && density < levelGate;
     }
 
