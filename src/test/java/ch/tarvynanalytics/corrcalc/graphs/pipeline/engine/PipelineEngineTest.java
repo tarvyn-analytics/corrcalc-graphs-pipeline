@@ -351,6 +351,131 @@ class PipelineEngineTest {
     }
 
     @Test
+    void detect_AdaptiveCalibrationAcrossBackstopExpiry_MatchesPreW1CachingByteForByte() {
+        // W1's no-op proof (design/23 3.8d), extended to AdaptiveCalibration: drive the identical
+        // tape through two otherwise-identical engines -- one on the real source, one wrapped to
+        // reconstruct the pre-W1 drain-only caching (PreW1CachingCalibrationSource). VD-5 --
+        // AdaptiveCalibration.calibration() never moves without synchronously queuing a matching
+        // event, pinned across AdaptiveQuietnessGateTest -- plus the fact that nothing else touches
+        // the source between two detect() calls means the two must produce byte-identical
+        // observation and calibration-event streams.
+        AdaptiveCalibrationConfig adaptiveCfg =
+                new AdaptiveCalibrationConfig(6, 1e6, 0, 1e6, 1e6, 1e-6, 1e6, 1000, 64);
+        DetectorConfig detector = rearmCfg(true).detector();
+        TimescaleConfig backstopCfg = new TimescaleConfig(WINDOW, detector,
+                new ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.RearmConfig(true, 2, 0.25, 5, 30));
+        Returns tape = cycles(36, 60, 20, 0, 0, 21L);   // one fusion, 60 elevated bars: never recovers
+
+        RecordedRun real = driveWithSource(backstopCfg, tape,
+                CalibrationSources.adaptive(adaptiveCfg, detector, null));
+        RecordedRun preW1 = driveWithSource(backstopCfg, tape,
+                new PreW1CachingCalibrationSource(CalibrationSources.adaptive(adaptiveCfg, detector, null)));
+
+        assertTrue(real.events().size() >= 2,
+                "the backstop expiry must reach the adaptive source: " + real.events());
+        assertEquals(real.events(), preW1.events());
+        assertEquals(real.observations(), preW1.observations());
+    }
+
+    /** The observer-forwarded event + observation streams of one recorded run. */
+    private record RecordedRun(List<CalibrationEvent> events, List<PipelineObservation> observations) {
+    }
+
+    private static RecordedRun driveWithSource(TimescaleConfig cfg, Returns tape, CalibrationSource source) {
+        List<CalibrationEvent> events = new ArrayList<>();
+        List<PipelineObservation> observations = new ArrayList<>();
+        PipelineObserver observer = new PipelineObserver() {
+            @Override
+            public void onObservation(PipelineObservation observation) {
+                observations.add(observation);
+            }
+
+            @Override
+            public void onCalibrationEvent(CalibrationEvent event) {
+                events.add(event);
+            }
+        };
+        PipelineEngine engine = PipelineEngine.builder(syms(4), cfg).calmBars(24).market("crypto")
+                .timescale("intraday").observer(observer).observationPolicy(ObservationPolicy.all())
+                .sink(new CollectingSink()).calibrationSource(source).build();
+        drive(engine, tape);
+        return new RecordedRun(events, observations);
+    }
+
+    /**
+     * Reconstructs the calibration-caching discipline {@code Listener.detect} used
+     * <strong>before</strong> W1 (design/23 3.8d): {@link #calibration()} returns a value refreshed
+     * only on a drained, non-demotion event (mirroring the old {@code drainCalibrationEvents}
+     * re-read) or on the very first call (mirroring {@code calibrate()}'s one-time read), never on
+     * the new unconditional per-bar top-of-{@code detect()} read. Every other seam delegates
+     * untouched, so the wrapped source's own internal state evolves identically to an undecorated
+     * run -- only what {@code Listener.detect} would have cached differs.
+     */
+    private static final class PreW1CachingCalibrationSource implements CalibrationSource {
+        private final CalibrationSource delegate;
+        private Calibration cached;
+        private boolean cachedOnce;
+
+        PreW1CachingCalibrationSource(CalibrationSource delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public void observe(Instant asOf, double weightedChange, double density) {
+            delegate.observe(asOf, weightedChange, density);
+        }
+
+        @Override
+        public void observeDetection(Instant asOf, double weightedChange, double density,
+                                     boolean alarmActive) {
+            delegate.observeDetection(asOf, weightedChange, density, alarmActive);
+        }
+
+        @Override
+        public void onRegimeExpired(Instant asOf) {
+            delegate.onRegimeExpired(asOf);
+        }
+
+        @Override
+        public boolean isReady() {
+            return delegate.isReady();
+        }
+
+        @Override
+        public boolean live() {
+            return delegate.live();
+        }
+
+        @Override
+        public Optional<CalibrationEvent> pollEvent() {
+            Optional<CalibrationEvent> event = delegate.pollEvent();
+            if (event.isPresent() && event.get().kind() != CalibrationEventKind.DEMOTED_TO_CALIBRATING) {
+                cached = delegate.calibration();
+            }
+            return event;
+        }
+
+        @Override
+        public Calibration calibration() {
+            if (!cachedOnce) {
+                cached = delegate.calibration();
+                cachedOnce = true;
+            }
+            return cached;
+        }
+
+        @Override
+        public CalibrationProvenance provenance() {
+            return delegate.provenance();
+        }
+
+        @Override
+        public CalibrationArtifact artifact(String market, String timescale) {
+            return delegate.artifact(market, timescale);
+        }
+    }
+
+    @Test
     void onReturns_MultiFusionStream_DisabledRearm_FiresOnceEver() {
         // The unchanged-behaviour guard: with the cadence disabled (bare TimescaleConfig), the
         // identical stream keeps the pre-H2 debounce — one fusion, ever.

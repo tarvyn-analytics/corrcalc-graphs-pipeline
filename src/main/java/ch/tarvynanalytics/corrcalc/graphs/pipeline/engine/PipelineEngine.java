@@ -36,6 +36,7 @@ import ch.tarvynanalytics.corrcalc.graphs.pipeline.StructuralSignal;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.StructuralSignals;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.SymbolVolatilityObservation;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.SymbolVolatilityBaseline;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.PairUniverse;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.RegimeSeries;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.RegimeTimescaleConfig;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.detect.SymbolVolatilityConfig;
@@ -214,6 +215,7 @@ public final class PipelineEngine {
         private boolean observeDensity;
         private SymbolVolatilityConfig volatilityConfig;
         private SymbolVolatilityBaseline volatilityBaseline;
+        private PairUniverse pairUniverse = PairUniverse.ALL;
 
         private Builder(String[] symbols, TimescaleConfig cfg) {
             if (symbols == null || symbols.length == 0) {
@@ -363,6 +365,20 @@ public final class PipelineEngine {
             return this;
         }
 
+        /**
+         * The pair universe the density metric normalizes over (design/23 §3.5): {@code allPairs /
+         * activePairs(asOf)} is applied at the regime read, the observation's density and the
+         * calibration source's density argument. Default {@link PairUniverse#ALL}, under which the
+         * engine is byte-identical to a build without this seam.
+         *
+         * @param universe the seam, or {@code null} to keep the {@link PairUniverse#ALL} default
+         * @return this builder
+         */
+        public Builder pairUniverse(PairUniverse universe) {
+            this.pairUniverse = universe == null ? PairUniverse.ALL : universe;
+            return this;
+        }
+
         /** Builds the engine, validating the required knobs. */
         public PipelineEngine build() {
             if (calmBars < 2) {
@@ -387,6 +403,8 @@ public final class PipelineEngine {
     private static final class Listener implements CorrelationStreamListener {
 
         private final int order;
+        private final long allPairs;
+        private final PairUniverse pairUniverse;
         private final double tau;
         private final TimescaleConfig cfg;
         private final String market;
@@ -431,6 +449,8 @@ public final class PipelineEngine {
 
         Listener(Builder b) {
             this.order = b.symbols.length;
+            this.allPairs = (long) order * (order - 1) / 2;
+            this.pairUniverse = b.pairUniverse;
             this.tau = b.cfg.edgeThreshold();
             this.cfg = b.cfg;
             this.market = b.market;
@@ -487,7 +507,8 @@ public final class PipelineEngine {
             if (regimeMode()) {
                 // The regime read is independent of the CUSUM calibration: it consumes the raw density
                 // from the first window-fill, aggregated to daily means then smoothed.
-                double density = ChangeMetricsAnalyzer.analyze(current, current, tau).densityLevel();
+                double density = normalizedDensity(asOf,
+                        ChangeMetricsAnalyzer.analyze(current, current, tau).densityLevel());
                 for (RegimeSeries.DailyLevel daily : regimeAgg.onDensity(asOf, density)) {
                     stepRegime(daily);
                 }
@@ -570,7 +591,8 @@ public final class PipelineEngine {
 
         private void calibrate(Instant asOf, double[][] current) {
             ChangeMetrics m = ChangeMetricsAnalyzer.analyze(prev == null ? current : prev, current, tau);
-            calibrationSource.observe(asOf, prev == null ? Double.NaN : m.weightedChange(), m.densityLevel());
+            calibrationSource.observe(asOf, prev == null ? Double.NaN : m.weightedChange(),
+                    normalizedDensity(asOf, m.densityLevel()));
             prev = current;
             calmBarsSeen++;
             if (calibrationSource.isReady()) {
@@ -595,12 +617,20 @@ public final class PipelineEngine {
                 detectPrev = current;   // first matrix after a session-boundary re-prime: no transition
                 return;
             }
+            // W1 (design/23 §3.8d): re-read the calibration once per scored bar, not only on a
+            // drained event, so a live-L bridge that queues no CalibrationEvent (e.g. a
+            // panel-membership change) still reaches this bar's gate. No-op for every existing run:
+            // calibration() only moves inside a call that also queues a matching event, and
+            // drainCalibrationEvents(true) below already re-reads it before this method returns — so
+            // this read always agrees with what the prior bar's drain already cached (VD-5).
+            calibrationResult = calibrationSource.calibration();
             RearmCadence.Rearm rearmed = rearm.observe(sig);
             detectionPoints++;
             List<PairContribution> contributors = contributors(detectPrev, current);
             detectPrev = current;
             SignalKind kind = sig.fired() ? toSignalKind(sig.fireDirection()) : null;
-            PipelineObservation obs = new PipelineObservation(asOf, market, timescale, sig.metrics(),
+            ChangeMetrics metrics = withNormalizedDensity(asOf, sig.metrics());
+            PipelineObservation obs = new PipelineObservation(asOf, market, timescale, metrics,
                     sig.sPlus(), sig.sMinus(), sig.recoveryGauge(), sig.fired(), kind, cfg.detector().h(),
                     calibrationResult.mu(), calibrationResult.sigma(), calibrationResult.level(), contributors);
             // The online half of the calibration seam: the adaptive source learns from every scored
@@ -608,8 +638,7 @@ public final class PipelineEngine {
             // whole fused-awaiting-re-arm span — the baseline may not move while an all-clear is
             // still pending against it (the may2021-class suppression guard).
             boolean freeze = obs.lifecycle() != DetectorState.ARMED || rearm.awaitingRearm();
-            calibrationSource.observeDetection(asOf, sig.metrics().weightedChange(),
-                    sig.metrics().densityLevel(), freeze);
+            calibrationSource.observeDetection(asOf, metrics.weightedChange(), metrics.densityLevel(), freeze);
             if (rearmed == RearmCadence.Rearm.EXPIRED) {
                 // The backstop expired an unresolved question: the freeze protected a PENDING
                 // all-clear; expiry ends it, so the adaptive source re-baselines and re-warms
@@ -670,6 +699,28 @@ public final class PipelineEngine {
                 }
                 observer.onCalibrationEvent(event);
             }
+        }
+
+        /**
+         * Rescales a raw density by {@code allPairs / activePairs(asOf)} when the {@link PairUniverse}
+         * reports fewer pairs than this run's fixed {@code C(order,2)}; returns {@code raw} verbatim
+         * otherwise (design/23 §3.5) — the default {@link PairUniverse#ALL} keeps every consumer
+         * byte-identical. No clamp: a result {@code > 1.0} means the seam and the pair count disagree,
+         * a defect to surface, not hide.
+         */
+        private double normalizedDensity(Instant asOf, double raw) {
+            long active = pairUniverse.activePairs(asOf);
+            return active <= 0 || active >= allPairs ? raw : raw * (double) allPairs / active;
+        }
+
+        /**
+         * Rebuilds {@code metrics} with its {@link ChangeMetrics#densityLevel()} replaced by
+         * {@link #normalizedDensity}; every other field carries through unchanged.
+         */
+        private ChangeMetrics withNormalizedDensity(Instant asOf, ChangeMetrics metrics) {
+            return new ChangeMetrics(metrics.weightedChange(), normalizedDensity(asOf, metrics.densityLevel()),
+                    metrics.edgeXor(), metrics.nComponents(), metrics.largestComponentFraction(),
+                    metrics.componentSizes());
         }
 
         /**
