@@ -20,6 +20,7 @@ import ch.tarvynanalytics.graphs.algos.model.RegimeTransition;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.CalibrationEvent;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.CalibrationEventKind;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.DetectorState;
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.DroppedBarReason;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.ObservationPolicy;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.PairContribution;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.calib.CalibrationSource;
@@ -124,6 +125,20 @@ public final class PipelineEngine {
      */
     public void onCloses(Instant asOf, double[] closes) {
         listener.onCloses(asOf, closes);
+    }
+
+    /**
+     * Notifies the observer that {@code asOf}'s snapshot produced no return bar (its
+     * {@link ch.tarvynanalytics.corrcalc.graphs.pipeline.data.ReturnBuilder} dropped it), so no
+     * {@link PipelineObservation} exists for it — never gated by the {@link ObservationPolicy} (a
+     * dropped bar carries no scored transition to gate). {@link PipelineDriver#run} calls this on the
+     * branch where the bar is absent; the engine itself fabricates nothing and writes nothing.
+     *
+     * @param asOf   the dropped snapshot's timestamp
+     * @param reason why the return was dropped
+     */
+    public void onDroppedBar(Instant asOf, DroppedBarReason reason) {
+        listener.observer.onDroppedBar(asOf, reason);
     }
 
     /**
@@ -646,7 +661,9 @@ public final class PipelineEngine {
             SignalKind kind = sig.fired() ? toSignalKind(sig.fireDirection()) : null;
             PipelineObservation obs = new PipelineObservation(asOf, market, timescale, metrics,
                     sig.sPlus(), sig.sMinus(), sig.recoveryGauge(), sig.fired(), kind, cfg.detector().h(),
-                    calibrationResult.mu(), calibrationResult.sigma(), calibrationResult.level(), contributors);
+                    calibrationResult.mu(), calibrationResult.sigma(),
+                    calibrationResult.muDensity(), calibrationResult.sigmaDensity(),
+                    calibrationResult.level(), contributors);
             // The online half of the calibration seam: the adaptive source learns from every scored
             // transition (frozen sources no-op). The freeze condition is the in-fire state PLUS the
             // whole fused-awaiting-re-arm span — the baseline may not move while an all-clear is

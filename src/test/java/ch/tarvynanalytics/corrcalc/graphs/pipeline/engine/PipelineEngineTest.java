@@ -209,6 +209,52 @@ class PipelineEngineTest {
     }
 
     @Test
+    void onReturns_CalmDensityPair_SurvivesFromCalibrationToEveryObservation() {
+        // CGP-45: PipelineObservation now exposes the density calm pair straight from the Calibration
+        // the run is scored against -- wired through, never recomputed. muDensity/sigmaDensity are
+        // distinguishable from every other number in this test (mu, sigma, level) so a wiring mistake
+        // (e.g. swapped arguments) would show up as a mismatch, not a coincidental pass.
+        Calibration external = new Calibration(0.01, 0.02, 0.9, 0.42, 0.07);
+        CalibrationSource ready = new CalibrationSource() {
+            @Override
+            public void observe(Instant asOf, double weightedChange, double density) {
+                // an externally-calibrated source ignores the stream
+            }
+
+            @Override
+            public boolean isReady() {
+                return true;
+            }
+
+            @Override
+            public Calibration calibration() {
+                return external;
+            }
+
+            @Override
+            public CalibrationProvenance provenance() {
+                return new CalibrationProvenance("calm-block", 0L, null, null);
+            }
+
+            @Override
+            public CalibrationArtifact artifact(String market, String timescale) {
+                throw new UnsupportedOperationException("not persisted in this test");
+            }
+        };
+        List<PipelineObservation> observed = new ArrayList<>();
+        PipelineEngine engine = builder(24).sink(new CollectingSink()).observer(observed::add)
+                .observationPolicy(ObservationPolicy.all()).calibrationSource(ready).build();
+
+        drive(engine, calmThenFused(WINDOW + 5, 0, 4, 11L));
+
+        assertTrue(observed.size() > 0, "the calm-block source calibrates on the first window-fill snapshot");
+        for (PipelineObservation obs : observed) {
+            assertEquals(external.muDensity(), obs.calmMuDensity());
+            assertEquals(external.sigmaDensity(), obs.calmSigmaDensity());
+        }
+    }
+
+    @Test
     void onReturns_MultiFusionStream_RearmsOnAllClearAndFiresPerEvent() {
         // H2 Q4 acceptance in miniature: two well-separated fusion→recovery cycles through the real
         // engine; with the re-arm cadence enabled the SECOND event fires too (pre-H2: once ever).

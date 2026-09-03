@@ -101,6 +101,21 @@ public interface PipelineObserver {
         // default: observers that do not track the per-symbol volatility channel ignore it
     }
 
+    /**
+     * Receives notice that a snapshot arrived whose return was dropped before it ever reached the
+     * engine — no {@link PipelineObservation} exists for it. Interleaved with {@link #onObservation}
+     * in stream order and never gated by an {@link ObservationPolicy} (there is no scored transition to
+     * gate). The pipeline fabricates nothing and writes nothing here; whether the consumer forwards,
+     * fills, or carries displayed state forward across the gap is entirely its own call. The default
+     * is a no-op.
+     *
+     * @param asOf   the dropped snapshot's timestamp
+     * @param reason why the return was dropped
+     */
+    default void onDroppedBar(java.time.Instant asOf, DroppedBarReason reason) {
+        // default: observers that do not track dropped bars ignore it
+    }
+
     /** A sink that drops every observation — the default when a consumer wants only the fire-stream. */
     static PipelineObserver noOp() {
         return observation -> {
