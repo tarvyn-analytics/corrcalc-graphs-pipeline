@@ -1,5 +1,6 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 
+import ch.tarvynanalytics.graphs.algos.Calibration;
 import ch.tarvynanalytics.graphs.algos.model.ChangeMetrics;
 
 import java.time.Instant;
@@ -36,6 +37,12 @@ import java.util.List;
  * @param calmMu            the calm-window mean of the weighted-change series (the "normal" move size)
  * @param calmSigma         the calm-window standard deviation of the weighted-change series (already
  *                          sigma-floored upstream); {@code <= 0} or NaN makes {@link #zScore()} NaN
+ * @param calmMuDensity     the calm-window mean of the density series ({@link Calibration#muDensity()},
+ *                          wired straight through); {@link Double#NaN} when the calibration in force never
+ *                          computed it (e.g. a hand-built {@code Calibration} via its 3-arg constructor)
+ * @param calmSigmaDensity  the calm-window standard deviation of the density series
+ *                          ({@link Calibration#sigmaDensity()}, wired straight through); {@link Double#NaN}
+ *                          under the same condition as {@link #calmMuDensity()}
  * @param levelGate         the absolute density level gate {@code L} (a percentile of calm density)
  * @param contributors      the top-k asset pairs that moved most this transition (by {@code |Δr|},
  *                          descending), the "who" behind the move; never {@code null} but possibly
@@ -54,6 +61,8 @@ public record PipelineObservation(
         double decisionThreshold,
         double calmMu,
         double calmSigma,
+        double calmMuDensity,
+        double calmSigmaDensity,
         double levelGate,
         List<PairContribution> contributors) {
 
@@ -71,6 +80,24 @@ public record PipelineObservation(
             throw new IllegalArgumentException("decisionThreshold must be > 0 [" + decisionThreshold + "]");
         }
         contributors = contributors == null ? List.of() : List.copyOf(contributors);
+    }
+
+    /**
+     * Pre-{@code calmMuDensity}/{@code calmSigmaDensity} arity; delegates with
+     * {@link Double#NaN} for both — a value that can never be mistaken for a real calm statistic,
+     * unlike a finite sentinel (a prior deprecated-delegate defect in {@code ChangeMetrics} defaulted a
+     * count to {@code -1} and shipped it as if it were data; NaN cannot repeat that mistake here).
+     *
+     * @deprecated since 1.3.0; loses the density calm pair — carry {@link #calmMuDensity()} and
+     *             {@link #calmSigmaDensity()} through the 16-arg canonical constructor instead
+     */
+    @Deprecated(since = "1.3.0")
+    public PipelineObservation(Instant asOf, String market, String timescale, ChangeMetrics metrics,
+            double cusumSPlus, double cusumSMinus, double recoveryGauge, boolean fired, SignalKind firedKind,
+            double decisionThreshold, double calmMu, double calmSigma, double levelGate,
+            List<PairContribution> contributors) {
+        this(asOf, market, timescale, metrics, cusumSPlus, cusumSMinus, recoveryGauge, fired, firedKind,
+                decisionThreshold, calmMu, calmSigma, Double.NaN, Double.NaN, levelGate, contributors);
     }
 
     /**

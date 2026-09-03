@@ -38,6 +38,17 @@ class PipelineObservationTest {
     }
 
     @Test
+    @SuppressWarnings("deprecation")   // exercises the legacy 14-arg constructor deliberately
+    void constructor_DeprecatedFourteenArgDelegate_DefaultsDensityPairToNaN() {
+        // The pre-CGP-45 arity: the density calm pair is unknowable through it, so it must default to
+        // NaN -- a value that can never be mistaken for a real calm statistic -- not a finite sentinel.
+        PipelineObservation obs = new PipelineObservation(Instant.EPOCH, "crypto", "intraday",
+                metrics(0.05), 0, 0, 0.0, false, null, 8.0, 0.05, 0.02, 0.5, List.of());
+        assertTrue(Double.isNaN(obs.calmMuDensity()));
+        assertTrue(Double.isNaN(obs.calmSigmaDensity()));
+    }
+
+    @Test
     void contributors_NullBecomesEmpty_AndListIsDefensivelyCopiedImmutable() {
         PipelineObservation nullContrib = new PipelineObservation(Instant.EPOCH, "crypto", "daily",
                 metrics(0.05), 0, 0, 0.0, false, null, 8.0, 0.05, 0.02, 0.5, null);

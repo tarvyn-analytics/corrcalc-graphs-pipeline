@@ -1,5 +1,6 @@
 package ch.tarvynanalytics.corrcalc.graphs.pipeline.engine;
 
+import ch.tarvynanalytics.corrcalc.graphs.pipeline.DroppedBarReason;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.data.ReturnBuilder;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.source.MarketDataSource;
 import ch.tarvynanalytics.corrcalc.graphs.pipeline.source.MarketSnapshot;
@@ -14,7 +15,10 @@ import java.util.Optional;
  * the one place the three pieces meet; a replay and a live run differ only in the source they pass and
  * the {@code Pace} they choose. Every snapshot is also forwarded to {@link PipelineEngine#onCloses}
  * immediately before it enters the {@code ReturnBuilder}, so the optional per-symbol volatility
- * channel always emits before the same bar's matrix-level observation (a no-op when unconfigured).
+ * channel always emits before the same bar's matrix-level observation (a no-op when unconfigured). A
+ * snapshot whose return {@code builder} drops (no within-session predecessor) never reaches
+ * {@link PipelineEngine#onReturns}; {@link PipelineEngine#onDroppedBar} is called instead so the
+ * consumer still hears about it.
  *
  * <p>Pacing matches the engine's calibration boundary: only post-calibration bars are paced (the warm-up
  * and calm prefix run as fast as the source yields them), so a replay's first impression starts
@@ -58,6 +62,12 @@ public final class PipelineDriver {
                     }
                     engine.onReturns(ts, bar.get().returns());
                     prevBarTs = ts;
+                } else {
+                    // No within-session predecessor (a session-first snapshot): the builder drops the
+                    // return before it ever reaches the engine, so no PipelineObservation exists for it
+                    // either. Tell the consumer a bar existed and produced no return -- forwarding,
+                    // filling, or carrying displayed state across the gap is its call, not this pipeline's.
+                    engine.onDroppedBar(snapshot.timestamp(), DroppedBarReason.SESSION_BOUNDARY);
                 }
                 if (engine.stopRequested() || Thread.currentThread().isInterrupted()) {
                     break;
