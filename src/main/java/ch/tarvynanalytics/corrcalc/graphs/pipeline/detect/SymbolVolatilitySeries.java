@@ -55,6 +55,7 @@ public final class SymbolVolatilitySeries {
 
     private final double[][] squares;    // per column: circular buffer of the last volWindow squared returns
     private final double[][] zWindow;    // per column: circular buffer of the last smoothWindow z-values
+    private final double[] singlePrintShare;   // per column: max/sum of squares, most recent onCloses call
     private double[] prevCloses;         // per-run predecessor cross-section (null until seeded)
     private Instant prevAsOf;
     private long returnRows;             // return rows accumulated so far (row 1 = second snapshot)
@@ -76,6 +77,8 @@ public final class SymbolVolatilitySeries {
         this.columns = baseline.symbols().size();
         this.squares = new double[columns][volWindow];
         this.zWindow = new double[columns][smoothWindow];
+        this.singlePrintShare = new double[columns];
+        Arrays.fill(singlePrintShare, Double.NaN);
     }
 
     /**
@@ -117,16 +120,22 @@ public final class SymbolVolatilitySeries {
             double r = masked ? 0.0 : ReturnPanels.logReturn(prevCloses[c], closes[c]);
             squares[c][slot] = r * r;
             double z = Double.NaN;
-            if (volWarm && sigma[c] > 0.0) {   // a NaN or non-positive sigma leaves the column unscored
-                // Fresh window sum in temporal order (oldest slot first): the volatility is a pure
-                // function of the trailing volWindow returns — no rounding path from older history —
-                // so a replay of the trailing bars reproduces it bit-for-bit.
+            if (volWarm) {
+                // Fresh window sum + max in temporal order (oldest slot first): both are pure
+                // functions of the trailing volWindow returns — no rounding path from older
+                // history — so a replay of the trailing bars reproduces them bit-for-bit.
                 double sum = 0.0;
+                double max = 0.0;
                 for (int k = 1; k <= volWindow; k++) {
-                    sum += squares[c][(slot + k) % volWindow];
+                    double sq = squares[c][(slot + k) % volWindow];
+                    sum += sq;
+                    max = Math.max(max, sq);
                 }
-                double vol = Math.sqrt(sum / volWindow);
-                z = (vol - mu[c]) / sigma[c];
+                singlePrintShare[c] = sum > 0.0 ? max / sum : Double.NaN;
+                if (sigma[c] > 0.0) {   // a NaN or non-positive sigma leaves the column unscored
+                    double vol = Math.sqrt(sum / volWindow);
+                    z = (vol - mu[c]) / sigma[c];
+                }
             }
             zWindow[c][zSlot] = z;
             if (smootherWarm) {
@@ -138,6 +147,18 @@ public final class SymbolVolatilitySeries {
         prevCloses = closes.clone();
         prevAsOf = asOf;
         return anyScored ? out : null;   // no callback until at least one column is scored
+    }
+
+    /**
+     * The per-column single-print share from the most recent {@link #onCloses} call:
+     * {@code max(r^2) / sum(r^2)} over the trailing {@code volWindow} squared returns
+     * (a masked gap row contributes {@code 0} to both). {@link Double#NaN} before the window is
+     * full or when the sum is {@code 0}; unlike {@code z}, independent of {@code sigma}.
+     *
+     * @return a defensive clone, one entry per baseline column
+     */
+    public double[] singlePrintShare() {
+        return singlePrintShare.clone();
     }
 
     /**

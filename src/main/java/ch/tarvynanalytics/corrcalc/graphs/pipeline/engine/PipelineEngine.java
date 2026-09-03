@@ -505,8 +505,8 @@ public final class PipelineEngine {
             }
             double[] zScores = volatilitySeries.onCloses(asOf, closes);
             if (zScores != null) {
-                observer.onSymbolVolatility(
-                        new SymbolVolatilityObservation(asOf, market, timescale, universe, zScores));
+                observer.onSymbolVolatility(new SymbolVolatilityObservation(asOf, market, timescale,
+                        universe, zScores, volatilitySeries.singlePrintShare()));
             }
         }
 
@@ -729,12 +729,13 @@ public final class PipelineEngine {
 
         /**
          * Rebuilds {@code metrics} with its {@link ChangeMetrics#densityLevel()} replaced by
-         * {@link #normalizedDensity}; every other field carries through unchanged.
+         * {@link #normalizedDensity}; every other field, including {@link ChangeMetrics#definedPairCount()},
+         * carries through unchanged.
          */
         private ChangeMetrics withNormalizedDensity(Instant asOf, ChangeMetrics metrics) {
             return new ChangeMetrics(metrics.weightedChange(), normalizedDensity(asOf, metrics.densityLevel()),
                     metrics.edgeXor(), metrics.nComponents(), metrics.largestComponentFraction(),
-                    metrics.componentSizes());
+                    metrics.componentSizes(), metrics.definedPairCount());
         }
 
         /**

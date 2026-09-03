@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -108,6 +109,76 @@ class SymbolVolatilitySeriesTest {
         assertEquals(-0.422301108983017, emitted.get(8)[0], 1e-12);    // hole row zeroed
         assertEquals(-0.3234261295002221, emitted.get(14)[0], 1e-12);  // fully warm, odd median
         assertEquals(-0.8272569375673241, emitted.get(14)[2], 1e-12);
+    }
+
+    @Test
+    void singlePrintShare_SeededTapeWithGapAndMidnight_MatchesNaiveOracle() {
+        List<Instant> times = times();
+        Map<Integer, double[]> expected = naiveSinglePrintShare(times, CLOSES, GAP_MASK);
+        SymbolVolatilitySeries stage = new SymbolVolatilitySeries(CONFIG, baseline(SIGMA));
+
+        for (int i = 0; i < CLOSES.length; i++) {
+            stage.onCloses(times.get(i), CLOSES[i]);
+            double[] want = expected.get(i);
+            double[] got = stage.singlePrintShare();
+            for (int c = 0; c < SYMBOLS.size(); c++) {
+                if (want == null) {
+                    assertTrue(Double.isNaN(got[c]), "snapshot [" + i + "] column [" + c + "] pre-warm");
+                } else {
+                    assertEquals(want[c], got[c], 1e-12, "snapshot [" + i + "] column [" + c + "]");
+                }
+            }
+        }
+    }
+
+    @Test
+    void singlePrintShare_MaskedGapRow_CountsAsZeroInBothSums() {
+        SymbolVolatilityConfig cfg = new SymbolVolatilityConfig(3, 1, GAP_MASK);
+        SymbolVolatilityBaseline base = new SymbolVolatilityBaseline("crypto", "intraday", 0L,
+                Instant.parse("2024-01-01T00:00:00Z"), Instant.parse("2024-02-01T00:00:00Z"),
+                List.of("A"), new double[]{0.0}, new double[]{1.0});
+        SymbolVolatilitySeries stage = new SymbolVolatilitySeries(cfg, base);
+        Instant t0 = Instant.parse("2024-03-01T00:00:00Z");
+
+        stage.onCloses(t0, new double[]{100.0});                                             // seed
+        stage.onCloses(t0.plusSeconds(60), new double[]{110.0});                              // r1
+        stage.onCloses(t0.plusSeconds(60 + 91), new double[]{90.0});                          // r2: gap masked to 0
+        double[] out = stage.onCloses(t0.plusSeconds(60 + 91 + 60), new double[]{121.0});     // r3: window warm
+
+        double r1 = Math.log(110.0 / 100.0);
+        double r3 = Math.log(121.0 / 90.0);
+        double sum = r1 * r1 + r3 * r3;   // r2 contributes 0 but the window still spans all 3 slots
+        double max = Math.max(r1 * r1, r3 * r3);
+        assertNotNull(out);
+        assertEquals(max / sum, stage.singlePrintShare()[0], 1e-12);
+    }
+
+    @Test
+    void singlePrintShare_AllZeroReturnsInWindow_IsNaN() {
+        SymbolVolatilityConfig cfg = new SymbolVolatilityConfig(2, 1, GAP_MASK);
+        SymbolVolatilityBaseline base = new SymbolVolatilityBaseline("crypto", "intraday", 0L,
+                Instant.parse("2024-01-01T00:00:00Z"), Instant.parse("2024-02-01T00:00:00Z"),
+                List.of("A"), new double[]{0.0}, new double[]{1.0});
+        SymbolVolatilitySeries stage = new SymbolVolatilitySeries(cfg, base);
+        Instant t0 = Instant.parse("2024-03-01T00:00:00Z");
+
+        stage.onCloses(t0, new double[]{100.0});                    // seed
+        stage.onCloses(t0.plusSeconds(60), new double[]{100.0});    // r1 = 0
+        stage.onCloses(t0.plusSeconds(120), new double[]{100.0});   // r2 = 0, window warm, sum = 0
+
+        assertTrue(Double.isNaN(stage.singlePrintShare()[0]));
+    }
+
+    @Test
+    void singlePrintShare_IndependentOfSigma_ScoredEvenWhenZPermanentlyUnscored() {
+        Map<Integer, double[]> emitted = sweep(new SymbolVolatilitySeries(CONFIG, baseline(SIGMA)));
+        SymbolVolatilitySeries stage = new SymbolVolatilitySeries(CONFIG, baseline(SIGMA));
+        List<Instant> times = times();
+        for (int i = 0; i < CLOSES.length; i++) {
+            stage.onCloses(times.get(i), CLOSES[i]);
+        }
+        assertTrue(Double.isNaN(emitted.get(6)[1]), "column B (sigma == 0) stays unscored for z");
+        assertFalse(Double.isNaN(stage.singlePrintShare()[1]), "singlePrintShare is scored regardless");
     }
 
     @Test
@@ -314,6 +385,41 @@ class SymbolVolatilitySeriesTest {
             if (any) {
                 out.put(r, smoothed);   // return row r is produced by snapshot index r
             }
+        }
+        return out;
+    }
+
+    /**
+     * The naive oracle for {@link SymbolVolatilitySeries#singlePrintShare()}: its own fresh
+     * {@code returns} array (structurally independent of {@link #naiveSmoothed}), then
+     * {@code max(r^2) / sum(r^2)} over a fresh trailing window per snapshot. Absent below
+     * {@code VOL_WINDOW} return rows (pre-warm).
+     */
+    private static Map<Integer, double[]> naiveSinglePrintShare(List<Instant> times, double[][] closes,
+                                                                Duration gapMask) {
+        int rows = closes.length - 1;
+        int cols = closes[0].length;
+        double[][] returns = new double[rows][cols];
+        for (int r = 1; r <= rows; r++) {
+            boolean gap = Duration.between(times.get(r - 1), times.get(r)).compareTo(gapMask) > 0;
+            for (int c = 0; c < cols; c++) {
+                returns[r - 1][c] = gap ? 0.0 : Math.log(closes[r][c] / closes[r - 1][c]);
+            }
+        }
+        Map<Integer, double[]> out = new HashMap<>();
+        for (int r = VOL_WINDOW; r <= rows; r++) {
+            double[] share = new double[cols];
+            for (int c = 0; c < cols; c++) {
+                double sum = 0.0;
+                double max = 0.0;
+                for (int i = r - VOL_WINDOW; i < r; i++) {
+                    double sq = returns[i][c] * returns[i][c];
+                    sum += sq;
+                    max = Math.max(max, sq);
+                }
+                share[c] = sum > 0.0 ? max / sum : Double.NaN;
+            }
+            out.put(r, share);
         }
         return out;
     }

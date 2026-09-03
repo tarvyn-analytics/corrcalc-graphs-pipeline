@@ -20,20 +20,24 @@ import java.util.Objects;
  * construction (the read accessor is zero-copy, matching the engine's array contracts — do not
  * mutate what {@link #zScores()} returns).</p>
  *
- * @param asOf      the timestamp of the close cross-section that produced this bar
- * @param market    the market label (e.g. {@code "crypto"})
- * @param timescale which timescale stream produced it ({@code "daily"} / {@code "intraday"})
- * @param symbols   the universe column order the z-scores are indexed by
- * @param zScores   the smoothed robust volatility z per column; {@link Double#NaN} = unscored
+ * @param asOf             the timestamp of the close cross-section that produced this bar
+ * @param market           the market label (e.g. {@code "crypto"})
+ * @param timescale        which timescale stream produced it ({@code "daily"} / {@code "intraday"})
+ * @param symbols          the universe column order the z-scores are indexed by
+ * @param zScores          the smoothed robust volatility z per column; {@link Double#NaN} = unscored
+ * @param singlePrintShare per-column {@code max(r^2) / sum(r^2)} over the trailing vol window
+ *                         ({@link Double#NaN} until warm or when the sum is {@code 0}); an all-NaN
+ *                         vector via the legacy 5-arg constructor
  */
 public record SymbolVolatilityObservation(
         Instant asOf,
         String market,
         String timescale,
         List<String> symbols,
-        double[] zScores) {
+        double[] zScores,
+        double[] singlePrintShare) {
 
-    /** Validates the components, copies {@code symbols} and defensively clones {@code zScores}. */
+    /** Validates the components, copies {@code symbols} and defensively clones the arrays. */
     public SymbolVolatilityObservation {
         if (asOf == null) {
             throw new IllegalArgumentException("asOf must not be null");
@@ -46,10 +50,28 @@ public record SymbolVolatilityObservation(
             throw new IllegalArgumentException("zScores must carry one value per symbol ["
                     + (zScores == null ? null : zScores.length) + "], expected [" + symbols.size() + "]");
         }
+        if (singlePrintShare == null || singlePrintShare.length != symbols.size()) {
+            throw new IllegalArgumentException("singlePrintShare must carry one value per symbol ["
+                    + (singlePrintShare == null ? null : singlePrintShare.length)
+                    + "], expected [" + symbols.size() + "]");
+        }
         zScores = zScores.clone();
+        singlePrintShare = singlePrintShare.clone();
     }
 
-    /** Content-aware equality (the {@code zScores} array is compared by value, not identity). */
+    /** Pre-{@code singlePrintShare} arity; delegates with an all-NaN vector (not known). */
+    public SymbolVolatilityObservation(Instant asOf, String market, String timescale,
+            List<String> symbols, double[] zScores) {
+        this(asOf, market, timescale, symbols, zScores, unscored(zScores));
+    }
+
+    private static double[] unscored(double[] zScores) {
+        double[] a = new double[zScores == null ? 0 : zScores.length];
+        Arrays.fill(a, Double.NaN);
+        return a;
+    }
+
+    /** Content-aware equality (the array components are compared by value, not identity). */
     @Override
     public boolean equals(Object o) {
         return o instanceof SymbolVolatilityObservation other
@@ -57,18 +79,21 @@ public record SymbolVolatilityObservation(
                 && Objects.equals(market, other.market)
                 && Objects.equals(timescale, other.timescale)
                 && Objects.equals(symbols, other.symbols)
-                && Arrays.equals(zScores, other.zScores);
+                && Arrays.equals(zScores, other.zScores)
+                && Arrays.equals(singlePrintShare, other.singlePrintShare);
     }
 
     @Override
     public int hashCode() {
-        return 31 * Objects.hash(asOf, market, timescale, symbols) + Arrays.hashCode(zScores);
+        return 31 * (31 * Objects.hash(asOf, market, timescale, symbols) + Arrays.hashCode(zScores))
+                + Arrays.hashCode(singlePrintShare);
     }
 
     @Override
     public String toString() {
         return "SymbolVolatilityObservation[asOf=" + asOf + ", market=" + market
                 + ", timescale=" + timescale + ", symbols=" + symbols
-                + ", zScores=" + Arrays.toString(zScores) + "]";
+                + ", zScores=" + Arrays.toString(zScores)
+                + ", singlePrintShare=" + Arrays.toString(singlePrintShare) + "]";
     }
 }
