@@ -87,6 +87,12 @@ class PipelineEnginePairUniverseTest {
             assertEquals(b.metrics().componentSizes(), s.metrics().componentSizes(), at);
             assertEquals(b.asOf(), s.asOf(), at);
             assertEquals(b.fired(), s.fired(), at);
+            // FMCSM regression: withNormalizedDensity must rebuild ChangeMetrics through the 7-arg
+            // constructor, carrying definedPairCount through -- the legacy 6-arg form silently drops
+            // it to -1 on every bar. Order-4, no gaps: every bar sees all 6 pairs finite in both windows.
+            assertTrue(b.metrics().definedPairCount() >= 0, "never the legacy-ctor sentinel: " + at);
+            assertEquals(b.metrics().definedPairCount(), s.metrics().definedPairCount(),
+                    "density normalization must not touch definedPairCount: " + at);
         }
     }
 

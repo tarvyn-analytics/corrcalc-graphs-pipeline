@@ -129,6 +129,7 @@ class PipelineEngineSymbolVolatilityTest {
         assertEquals("daily", vol.get(0).timescale());
         assertEquals(List.of(syms(4)), vol.get(0).symbols());
         assertEquals(4, vol.get(0).zScores().length);
+        assertEquals(4, vol.get(0).singlePrintShare().length);
 
         // The pinned ordering: wherever both streams carry the same bar, the volatility bar
         // arrived first (the driver feeds onCloses before the same snapshot's return bar).
