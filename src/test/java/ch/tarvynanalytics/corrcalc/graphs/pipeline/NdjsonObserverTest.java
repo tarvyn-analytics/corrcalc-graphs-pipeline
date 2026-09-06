@@ -416,4 +416,28 @@ class NdjsonObserverTest {
         assertEquals(0, n.get("recalibrations").asLong());
         assertTrue(n.get("muJourney").isNull(), n.toString());
     }
+
+    @Test
+    void dropRecord_SerializesAsOfAndReason() throws Exception {
+        JsonNode n = MAPPER.readTree(NdjsonObserver.dropRecord(
+                Instant.parse("2021-04-22T00:00:00Z"), DroppedBarReason.REARM_EXPIRED));
+        assertEquals("drop", n.get("rec").asText());
+        assertEquals("2021-04-22T00:00:00Z", n.get("asOf").asText());
+        assertEquals("REARM_EXPIRED", n.get("reason").asText());
+    }
+
+    @Test
+    void onDroppedBar_EmitsDropLineCarryingTheReason() throws Exception {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        NdjsonObserver observer = new NdjsonObserver(new PrintStream(bos, true, StandardCharsets.UTF_8));
+
+        observer.onDroppedBar(Instant.parse("2021-04-23T00:00:00Z"), DroppedBarReason.SESSION_BOUNDARY);
+        observer.onDroppedBar(Instant.parse("2021-04-24T00:00:00Z"), DroppedBarReason.REARM_EXPIRED);
+
+        String[] lines = bos.toString(StandardCharsets.UTF_8).split("\n");
+        assertEquals(2, lines.length, bos.toString(StandardCharsets.UTF_8));
+        assertEquals("drop", MAPPER.readTree(lines[0]).get("rec").asText());
+        assertEquals("SESSION_BOUNDARY", MAPPER.readTree(lines[0]).get("reason").asText());
+        assertEquals("REARM_EXPIRED", MAPPER.readTree(lines[1]).get("reason").asText());
+    }
 }
