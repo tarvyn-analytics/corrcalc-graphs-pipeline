@@ -9,7 +9,10 @@ package ch.tarvynanalytics.corrcalc.graphs.pipeline;
 public enum DroppedBarReason {
 
     /** No within-session predecessor to return against (a new {@code SessionPolicy} session key). */
-    SESSION_BOUNDARY("first snapshot of a new session -- no return crosses the boundary");
+    SESSION_BOUNDARY("first snapshot of a new session -- no return crosses the boundary"),
+
+    /** The re-arm calendar backstop expired mid-question; the detector re-primed and scored nothing. */
+    REARM_EXPIRED("re-arm backstop expired -- the detector re-primed and scored no transition");
 
     private final String phrase;
 

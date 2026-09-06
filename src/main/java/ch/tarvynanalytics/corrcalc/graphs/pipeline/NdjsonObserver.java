@@ -39,8 +39,9 @@ public final class NdjsonObserver implements PipelineObserver {
      * fused dwell) and the digest's {@code fusedRegimeCount} / {@code calmOnsets} /
      * {@code regimeOpenAtEof} block. On the continuous tape a {@code FUSION} is now a regime onset,
      * not a CUSUM breach, so a consumer must read the schema.
+     * v5: the {@code drop} record (a snapshot whose return never reached the engine).
      */
-    public static final int SCHEMA = 4;
+    public static final int SCHEMA = 5;
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -265,6 +266,28 @@ public final class NdjsonObserver implements PipelineObserver {
     @Override
     public void onDensityLevel(java.time.Instant asOf, double smoothedLevel) {
         emit(densityRecord(asOf, smoothedLevel));
+    }
+
+    /**
+     * One {@code drop} record — a snapshot whose return never reached the engine, so no {@code obs}
+     * record exists for it: the timestamp and the bounded {@link DroppedBarReason} (the human phrase
+     * stays a fixed client-side lookup, {@link DroppedBarReason#phrase()}).
+     *
+     * @param asOf   the dropped snapshot's timestamp
+     * @param reason why the return was dropped
+     * @return the drop record as a single JSON object
+     */
+    public static String dropRecord(java.time.Instant asOf, DroppedBarReason reason) {
+        ObjectNode n = MAPPER.createObjectNode();
+        n.put("rec", "drop");
+        n.put("asOf", asOf.toString());
+        n.put("reason", reason.name());
+        return n.toString();
+    }
+
+    @Override
+    public void onDroppedBar(java.time.Instant asOf, DroppedBarReason reason) {
+        emit(dropRecord(asOf, reason));
     }
 
     /**
