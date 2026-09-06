@@ -4,7 +4,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>io.github.tarvyn-analytics.corrcalc.graphs</groupId>
     <artifactId>corrcalc-graphs-pipeline</artifactId>
-    <version>1.3.1-SNAPSHOT</version>
+    <version>1.3.2-SNAPSHOT</version>
     <packaging>jar</packaging>
     <name>corrcalc-graphs streaming pipeline</name>
     <description>Streaming structural-change pipeline service. Wires the corrcalc-lib online
