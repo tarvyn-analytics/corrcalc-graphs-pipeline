@@ -268,6 +268,28 @@ public final class NdjsonObserver implements PipelineObserver {
     }
 
     /**
+     * One {@code drop} record — a snapshot whose return never reached the engine, so no {@code obs}
+     * record exists for it: the timestamp and the bounded {@link DroppedBarReason} (the human phrase
+     * stays a fixed client-side lookup, {@link DroppedBarReason#phrase()}).
+     *
+     * @param asOf   the dropped snapshot's timestamp
+     * @param reason why the return was dropped
+     * @return the drop record as a single JSON object
+     */
+    public static String dropRecord(java.time.Instant asOf, DroppedBarReason reason) {
+        ObjectNode n = MAPPER.createObjectNode();
+        n.put("rec", "drop");
+        n.put("asOf", asOf.toString());
+        n.put("reason", reason.name());
+        return n.toString();
+    }
+
+    @Override
+    public void onDroppedBar(java.time.Instant asOf, DroppedBarReason reason) {
+        emit(dropRecord(asOf, reason));
+    }
+
+    /**
      * The terminal {@code digest} record — the run folded into one object: counts by severity, the peak
      * activation and σ-move, the single biggest move (and when), fired/published, and a time-in-fused
      * proxy. The counts are over the observations this observer received (see {@link RunDigest}).
