@@ -465,7 +465,7 @@ public final class PipelineEngine {
         private long observationsEmitted;
         private boolean stop;
         // Set on the EXPIRED-rearm bar; consumed on the very next bar, whose re-primed onMatrix
-        // scores nothing -- that is the bar CGP-191 reports as onDroppedBar(REARM_EXPIRED).
+        // scores nothing -- that is the bar reported via onDroppedBar(REARM_EXPIRED).
         private boolean rearmExpiredRePrime;
         // Regime-backbone state: the last regime, the open fusion's onset day, and the latest daily read.
         private RegimeState regimeState = RegimeState.CALM;
@@ -643,9 +643,9 @@ public final class PipelineEngine {
             if (sig == null) {
                 detectPrev = current;   // first matrix after a session-boundary re-prime: no transition
                 if (rearmExpiredRePrime) {
-                    // CGP-191: the previous bar's calendar backstop re-primed the detector, so this
-                    // bar's return scored nothing and no PipelineObservation was built for it -- tell
-                    // the consumer a bar existed, on the same never-gated path SESSION_BOUNDARY uses.
+                    // The previous bar's calendar backstop re-primed the detector, so this bar's
+                    // return scored nothing and no PipelineObservation was built for it -- tell the
+                    // consumer a bar existed, on the same never-gated path SESSION_BOUNDARY uses.
                     observer.onDroppedBar(asOf, DroppedBarReason.REARM_EXPIRED);
                     rearmExpiredRePrime = false;
                 }

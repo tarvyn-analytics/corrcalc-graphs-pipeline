@@ -27,7 +27,7 @@ class NdjsonObserverTest {
         JsonNode n = MAPPER.readTree(
                 NdjsonObserver.calibRecord(obs(1.0, 1.0, 0.81, 0.0647, 0.0258, 0.167, 34.0, true)));
         assertEquals("calib", n.get("rec").asText());
-        assertEquals(4, n.get("schema").asInt());
+        assertEquals(5, n.get("schema").asInt());
         assertEquals("crypto", n.get("market").asText());
         assertEquals("daily", n.get("timescale").asText());
         assertEquals(0.0647, n.get("mu").asDouble(), 1e-12);
@@ -204,7 +204,7 @@ class NdjsonObserverTest {
         JsonNode n = MAPPER.readTree(NdjsonObserver.regimeRecord(close));
 
         assertEquals("regime", n.get("rec").asText());
-        assertEquals(4, n.get("schema").asInt());
+        assertEquals(5, n.get("schema").asInt());
         assertEquals("CALM_ONSET", n.get("kind").asText());
         assertEquals("2021-11-07T00:00:00Z", n.get("asOf").asText());
         assertEquals(0.42, n.get("density").asDouble(), 1e-12);
@@ -333,7 +333,7 @@ class NdjsonObserverTest {
                 CalibrationEventKind.RECALIBRATED, 2, 0.0100, 0.0132, 0.0043, 0.0051,
                 Instant.parse("2021-05-19T13:00:00Z"))));
         assertEquals("calibEvent", n.get("rec").asText());
-        assertEquals(4, n.get("schema").asInt());
+        assertEquals(5, n.get("schema").asInt());
         assertEquals("2021-05-19T13:00:00Z", n.get("asOf").asText());
         assertEquals("RECALIBRATED", n.get("kind").asText());
         assertEquals(2, n.get("epochId").asLong());
